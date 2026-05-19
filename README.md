@@ -29,3 +29,15 @@ Wu, R., Chaba, S., Sawlani, S., Chu, X., & Thirumuruganathan, S.
 **ZeroER: Entity Resolution using Zero Labeled Examples**
 SIGMOD Conference 2020, pp. 1149–1164.
 
+
+## To-do (ideal target: 03/06/2026)
+
+- [ ] Fully understand the reasoning behind ZeroER and replicate it from scratch (potential PyTorch implementation)
+- [ ] Experiment with the feature generation used (Pandas vectorisation & Polars implementation)
+- [ ] Fully understand PyJedAI's flow
+- [ ] Integrate ZeroER as an unsupervised matcher into PyJedAI's flow
+- [ ] Create unit tests for replicating ZeroER results
+- [ ] Organise experiment tracking/results via Optuna DB and a dedicated README
+- [ ] Run experiments on all benchmark datasets
+  - [ ] Abt-Buy & Amazon-Google Products (challenging ones according to George)
+  - [ ] Evaluate experiments on a Pareto front (minimise number of blocks while maximising KPIs)
