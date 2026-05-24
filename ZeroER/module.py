@@ -1,28 +1,41 @@
-"""ZeroER-style unsupervised matching, ported from
-https://github.com/chu-data-lab/zeroer (model.py).
-
-ZeroerModel: EM math, ported bit-for-bit from upstream so results stay comparable to the published ZeroER numbers.
-
-ZeroERMatcher: pyJedAI stage description
 """
+The model bellow is taken bit-by-bit from upstream ZeroER's ``model.py``
+(https://github.com/chu-data-lab/zeroer) so that results stay comparable to the
+published ZeroER numbers.
+
+Exports
+-------
+ZeroerModel
+    Two-component Gaussian-mixture EM over a similarity-feature matrix;
+    ``ZeroerModel.run_em(...)`` is the fit loop (E-step / M-step until the
+    free-energy convergence test trips), with optional transitivity.
+get_y_init_given_threshold
+    Threshold-on-scaled-sum bootstrap labelling that seeds EM.
+ConvergenceMeter
+    Free-energy convergence test used inside ``run_em``.
+bay_coeff, getScaledSum
+    Pure helpers used inside the M-step / initialisation.
+"""
+
 import pickle
-import time
 from collections import Counter, defaultdict
 
 import numpy as np
 import pandas as pd
-from networkx import Graph
 from scipy.optimize import newton
 from scipy.stats import multivariate_normal, norm
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import MinMaxScaler
-from stringcompare import Jaro, Levenshtein
 from tqdm.autonotebook import tqdm
 
-from .datamodel import Data, PYJEDAIFeature
-from .evaluation import Evaluation
-from .string_matchers import Cosine, Jaccard, WhitespaceTokenizer
+__all__ = [
+    "ZeroerModel",
+    "get_y_init_given_threshold",
+    "ConvergenceMeter",
+    "bay_coeff",
+    "getScaledSum",
+]
 
 DEL = 1e-300
 
@@ -82,6 +95,31 @@ class ConvergenceMeter:
 
 
 class ZeroerModel:
+    """
+    Pairwise similarity features
+         
+    Initial rough labels (from a threshold on similarity)
+            
+    Initialise match / non-match model
+            
+    Repeat EM steps:
+        E-step:
+            estimate probability of match
+    
+        -> optional consistency fix:
+            ensure matches are logically consistent (transitivity)
+    
+        M-step:
+            update model parameters
+            (means, variances, covariances)
+    
+        -> smooth / regularise covariance updates
+    
+        -> check if results have stabilised (convergence test)
+    
+    Final output:
+        probability each pair is a match
+    """
     class Gaussian:
         def __init__(self, mu, std):
             self.mu = mu
@@ -484,64 +522,3 @@ class ZeroerModel:
                     pbar.set_description_str(result_str)
 
         return model, model.P_M
-
-
-# ---------------------------------------------------------------------------
-# pyJedAI stage: feature matrix builder + ZeroerModel wrapper.
-# ---------------------------------------------------------------------------
-
-_WS = WhitespaceTokenizer()
-_JACCARD = Jaccard()
-_COSINE = Cosine()
-_JARO = Jaro()
-_LEV = Levenshtein()
-
-
-def _char_ngrams(s: str, n: int = 3) -> list:
-    if len(s) < n:
-        return [s] if s else []
-    return [s[i:i + n] for i in range(len(s) - n + 1)]
-
-
-def _build_feature_matrix(pairs, data, attributes):
-    """Build the per-(attribute x sim_fn) similarity feature matrix.
-
-    Mirrors zeroer's gather_similarity_features: six similarity functions
-    per shared attribute, then zero-variance columns dropped.
-
-    To-do:
-     - experiment more with vectorisation here
-     - ideal scenario would be to replace pandas with Polars
-    """
-    if not pairs:
-        return pd.DataFrame()
-    li, ri = map(np.asarray, zip(*pairs))
-
-    def block(attr: str) -> pd.DataFrame:
-        col = data.entities[attr].astype(str).str.lower().to_numpy()
-        uniq, inv = np.unique(col, return_inverse=True)
-        toks_u = list(map(_WS.tokenize, uniq))
-        ngs_u = list(map(_char_ngrams, uniq))
-        a, b = col[li], col[ri]
-        ia, ib = inv[li], inv[ri]
-        toks_a, toks_b = [toks_u[i] for i in ia], [toks_u[i] for i in ib]
-        ngs_a, ngs_b = [ngs_u[i] for i in ia], [ngs_u[i] for i in ib]
-        return pd.DataFrame({
-            f"{attr}_jaccardq3": [_JACCARD.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(ngs_a, ngs_b)],
-            f"{attr}_jaccardw":  [_JACCARD.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(toks_a, toks_b)],
-            f"{attr}_cosinew":   [_COSINE.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(toks_a, toks_b)],
-            f"{attr}_jaro":      [1.0 - _JARO.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(a, b)],
-            f"{attr}_lev":       [1.0 - _LEV.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(a, b)],
-            f"{attr}_exact":     np.where((a == b) & (a != ""), 1.0, 0.0),
-        })
-
-    return (
-        pd.concat(map(block, attributes), axis=1)
-        .pipe(lambda df: df.loc[:, df.nunique(dropna=False) > 1])
-    )
-
