@@ -15,3 +15,6 @@ docs/pyjedai/__pycache__/
 docs/pyjedai/.ipynb_checkpoints/
 data/ccer/D2/gt_kaggle.csv
 *.pyc
+
+# michail dev
+.embs/

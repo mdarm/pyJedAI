@@ -1,5 +1,12 @@
-"""
-The model bellow is taken bit-by-bit from upstream ZeroER's ``model.py``
+"""Model layer — the pure ZeroER EM model (the "network").
+
+This is the model concern of the three-layer ml-project-style split: the
+unsupervised-matching model and nothing else — no pyJedAI stage glue, no
+blocking, no data loading, no experiment plumbing. It depends only on
+numpy/scipy/scikit-learn/pandas, so it could be lifted into a completely
+different project unchanged.
+
+The code is transferred bit-for-bit from upstream ZeroER's ``model.py``
 (https://github.com/chu-data-lab/zeroer) so that results stay comparable to the
 published ZeroER numbers.
 
@@ -97,28 +104,31 @@ class ConvergenceMeter:
 class ZeroerModel:
     """
     Pairwise similarity features
-         
+            ↓
     Initial rough labels (from a threshold on similarity)
-            
-    Initialise match / non-match model
-            
+            ↓
+    Start match / non-match model
+            ↓
     Repeat EM steps:
+    
         E-step:
             estimate probability of match
     
-        -> optional consistency fix:
+        → optional consistency fix:
             ensure matches are logically consistent (transitivity)
     
         M-step:
             update model parameters
             (means, variances, covariances)
     
-        -> smooth / regularise covariance updates
+        → smooth / regularize covariance updates
     
-        -> check if results have stabilised (convergence test)
+        → check if results have stabilized (convergence test)
     
+            ↓
     Final output:
         probability each pair is a match
+
     """
     class Gaussian:
         def __init__(self, mu, std):
