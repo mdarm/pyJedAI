@@ -41,7 +41,7 @@ from pyjedai.evaluation import Evaluation
 from pyjedai.string_matchers import Cosine, Jaccard, WhitespaceTokenizer
 from pyjedai.vector_based_blocking import EmbeddingsNNBlockBuilding
 
-from zeroer import ZeroerModel, get_y_init_given_threshold
+from module import ZeroerModel, get_y_init_given_threshold
 
 __all__ = ["ZeroERMatcher", "ZeroEREstimator"]
 
