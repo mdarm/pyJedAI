@@ -49,6 +49,7 @@ DATASETS = {
 # Storage — the single sqlite source of truth, shared by both (and soon other) notebooks 
 # pass ``storage=`` to point elsewhere.
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 STORAGE = f"sqlite:///{os.path.join(OUTPUT_DIR, 'optuna.db')}"
 
 
