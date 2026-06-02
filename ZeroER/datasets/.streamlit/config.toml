@@ -1,0 +1,11 @@
+# DeepSeek-style light theme for tsne_dashboard.py.
+# baseFontSize bumps the root size so every widget/text scales up uniformly.
+[theme]
+base = "light"
+primaryColor = "#4D6BFE"            # DeepSeek accent blue
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F6FF"
+textColor = "#1B2430"
+linkColor = "#4D6BFE"
+baseFontSize = 18
+font = "sans-serif"

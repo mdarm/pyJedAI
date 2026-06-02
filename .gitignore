@@ -18,3 +18,4 @@ data/ccer/D2/gt_kaggle.csv
 
 # michail dev
 .embs/
+ZeroER/outputs/tsne_notebook/*.parquet
