@@ -18,9 +18,12 @@ This project extends ZeroER to improve:
 * Deliver a fast, unsupervised ER pipeline without labeled data
 * Integrate ZeroER++ into pyJedAI (last step)
 
-## Experimental setup 
+## Experimental Setup
 
-All experiments were performed on an AWS EC2 r6i.8xlarge instance running Ubuntu 20.04.6 LTS (Focal Fossa). The system consisted of 32 virtual CPUs, backed by an Intel Xeon Platinum 8375C processor (2.90 GHz) and 256 GB of main memory.
+Experiments were conducted on either one of the following instances:
+
+- [AWS EC2 g5.4xlarge](https://aws.amazon.com/ec2/instance-types/g5/): 16 vCPUs, Intel Xeon Platinum 8259CL processor (2.50 GHz), 64 GB system memory, and a single NVIDIA A10G Tensor Core GPU with 24 GB of GDDR6 VRAM, running Ubuntu 20.04.6 LTS (Focal Fossa)
+- [AWS EC2 r6i.8xlarge](https://aws.amazon.com/ec2/instance-types/r6i/): 32 vCPUs, Intel Xeon Platinum 8375C processor (2.90 GHz), 256 GB of main memory, running Ubuntu 20.04.6 LTS (Focal Fossa)
 
 ## Based On
 
