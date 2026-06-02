@@ -37,16 +37,19 @@ Wu, R., Chaba, S., Sawlani, S., Chu, X., & Thirumuruganathan, S.
 SIGMOD Conference 2021, pp. 1149–1164.
 
 
-## To-do (ideal target: 16/07/2026)
+## To-do (16/06/2026)
+
+- [ ] Fully reproduce ZeroER's feature generation and test it (only way to for results to be comparable)
+- [ ] Create unit tests for replicating ZeroER results (on all benchmarks)
+- [ ] Generalise to integrate one-column benchmarks (all possible pairs from a table)
+
+### ideal target: 16/07/2026
 
 - [ ] Fully understand the reasoning behind ZeroER and replicate it from scratch (potential PyTorch implementation)
 - [ ] Experiment with the feature generation used (Pandas vectorisation & Polars implementation)
 - [ ] Fully understand PyJedAI's flow
 - [x] Integrate ZeroER as an unsupervised matcher into PyJedAI's flow
-- [ ] Create unit tests for replicating ZeroER results (LATER)
 - [ ] Organise experiment tracking/results via Optuna DB and a dedicated README
 - [x] Run experiments on all benchmark datasets
   - [ ] Abt-Buy & Amazon-Google Products (challenging ones according to George)
-  - [x] t-SNE (or UMAP) on said challenging datasets
-  - [x] Evaluate experiments on a Pareto front (minimise number of blocks while maximising KPIs)
   - [ ] Maybe use proper scoring rules while assessing best parameters (and not maximising KPIs such as F2)
