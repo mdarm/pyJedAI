@@ -128,7 +128,7 @@ else:
     st.markdown(f"### {len(rows)} selected pair(s)")
     for r in rows:
         rec = sub.iloc[r]
-        tag = "🟥 MATCH" if rec["label"] else "⬜ non-match"
+        tag = "🟦 MATCH" if rec["label"] else "⬜ non-match"
         st.markdown(f"**{tag}** — left `{rec['left_id']}` ▸ right `{rec['right_id']}`")
         detail = pd.DataFrame({
             "attribute": attrs,
