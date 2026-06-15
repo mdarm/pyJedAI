@@ -25,6 +25,24 @@ Experiments were conducted on either one of the following instances:
 - [AWS EC2 g5.4xlarge](https://aws.amazon.com/ec2/instance-types/g5/): 16 vCPUs, Intel Xeon Platinum 8259CL processor (2.50 GHz), 64 GB system memory, and a single NVIDIA A10G Tensor Core GPU with 24 GB of GDDR6 VRAM, running Ubuntu 20.04.6 LTS (Focal Fossa)
 - [AWS EC2 r6i.8xlarge](https://aws.amazon.com/ec2/instance-types/r6i/): 32 vCPUs, Intel Xeon Platinum 8375C processor (2.90 GHz), 256 GB of main memory, running Ubuntu 20.04.6 LTS (Focal Fossa)
 
+Embeddings were computed on:
+
+- Custom KVM virtual machine: 48 vCPUs on an AMD EPYC 9B45 processor (24 cores, 2 threads per core), 181 GB of system memory, and a single NVIDIA RTX PRO 6000 Blackwell GPU with 96 GB of VRAM
+
+## Precomputed Embeddings
+
+To compare semantic-similarity backends without re-encoding on every run, each
+record of the five benchmarks was embedded ahead of time with 20 text-embedding
+models, from classic sentence-transformer baselines to recent LLM-based
+embedders. Datasets are discovered by walking `ZeroER/datasets/` for any folder
+holding both a `left.csv` and a `right.csv`; each row is serialised into a
+single string by joining its non-empty fields as `column: value` segments
+separated by ` | `, and that text is fed to the encoder. The resulting matrices
+are saved as `<model>_left.npy` / `<model>_right.npy` under
+`ZeroER/datasets/embeddings/<dataset>/`, row-aligned with the source CSVs. See
+[`datasets/embeddings/README.md`](ZeroER/datasets/embeddings/README.md) for the
+full model list and filename-to-model mapping.
+
 ## Based On
 
 * ZeroER — *Entity Resolution using Zero Labeled Examples* (SIGMOD 2021)
