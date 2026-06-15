@@ -55,7 +55,7 @@ Wu, R., Chaba, S., Sawlani, S., Chu, X., & Thirumuruganathan, S.
 SIGMOD Conference 2021, pp. 1149–1164.
 
 
-## To-do (16/06/2026)
+## To-do (30/06/2026)
 
 - [ ] Fully reproduce ZeroER's feature generation and test it (only way to for results to be comparable)
 - [ ] Create unit tests for replicating ZeroER results (on all benchmarks)
