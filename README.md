@@ -62,7 +62,7 @@ SIGMOD Conference 2021, pp. 1149–1164.
 - [ ] Generalise to integrate one-column benchmarks (all possible pairs from a table)
 - [ ] Assess blocking-influence, using LLM embeddings, on all ZeroER benchmarks (probably need to also include time required for embedding creation) 
 
-### ideal target: 31/07/2026
+### ideal target: 31/08/2026
 
 - [ ] Fully understand the reasoning behind ZeroER and replicate it from scratch (potential PyTorch implementation)
 - [ ] Experiment with the feature generation used (Pandas vectorisation & Polars implementation)
@@ -71,4 +71,4 @@ SIGMOD Conference 2021, pp. 1149–1164.
 - [ ] Organise experiment tracking/results via Optuna DB and a dedicated README
 - [x] Run experiments on all benchmark datasets
   - [ ] Abt-Buy & Amazon-Google Products (challenging ones according to George)
-  - [ ] Maybe use proper scoring rules while assessing best parameters (and not maximising KPIs such as F2)
+  - [ ] Maybe use proper scoring rules while assessing best parameters (and not maximising KPIs such as F1)
