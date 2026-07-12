@@ -14,9 +14,9 @@ This is the wrapper concern of the three-layer split. It depends on both:
 Two framework-facing concerns live here:
 
 * ``ZeroERMatcher`` — the low-level pyJedAI stage (``PYJEDAIFeature``) that
-  turns a block structure into a match graph: it builds a per-(attribute x
-  sim_fn) similarity-feature matrix from candidate pairs and runs the
-  ``ZeroerModel`` from ``zeroer.py`` on it.
+  turns a block structure into a match graph: it builds the exact
+  ZeroER/Magellan similarity-feature matrix (``zeroer_features``) from the
+  candidate pairs and runs the ``ZeroerModel`` from ``zeroer.py`` on it.
 
 * ``ZeroEREstimator`` — the orchestrator / public entry point. It owns the
   end-to-end pipeline (blocking -> matching) behind a single flat, typed
@@ -26,91 +26,64 @@ Two framework-facing concerns live here:
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
+import faiss
 import numpy as np
 import pandas as pd
 from networkx import Graph
-from stringcompare import Jaro, Levenshtein
 
 from pyjedai.block_building import StandardBlocking
 from pyjedai.block_cleaning import BlockFiltering, BlockPurging
 from pyjedai.comparison_cleaning import WeightedEdgePruning
 from pyjedai.datamodel import Data, PYJEDAIFeature
 from pyjedai.evaluation import Evaluation
-from pyjedai.string_matchers import Cosine, Jaccard, WhitespaceTokenizer
 from pyjedai.vector_based_blocking import EmbeddingsNNBlockBuilding
 
 from module import ZeroerModel, get_y_init_given_threshold
+from zeroer_features import build_zeroer_features
 
 __all__ = ["ZeroERMatcher", "ZeroEREstimator"]
 
 
-# ---------------------------------------------------------------------------
-# Feature matrix builder — the bridge from pyJedAI candidate pairs to the
-# similarity-feature matrix ZeroerModel consumes.
-# ---------------------------------------------------------------------------
-_WS = WhitespaceTokenizer()
-_JACCARD = Jaccard()
-_COSINE = Cosine()
-_JARO = Jaro()
-_LEV = Levenshtein()
+def _precomputed_nn_blocks(vectors, data, top_k: int,
+                           similarity_distance: str) -> dict:
+    """k-NN blocking over precomputed record embeddings.
 
-
-def _char_ngrams(s: str, n: int = 3) -> list:
-    if len(s) < n:
-        return [s] if s else []
-    return [s[i:i + n] for i in range(len(s) - n + 1)]
-
-
-def _build_feature_matrix(pairs, data, attributes):
-    """Build the per-(attribute x sim_fn) similarity feature matrix.
-
-    Mirrors the spirit of zeroer's gather_similarity_features: six
-    similarity functions per shared attribute, then zero-variance columns
-    dropped. Column names are `<attr>_<sim>` so ZeroerModel's group-by-
-    prefix covariance structure stays intact.
+    Replaces ``EmbeddingsNNBlockBuilding``'s vectorise-then-search with a plain
+    faiss search over vectors embedded offline: index the left table, query the
+    right, key blocks by the right entity's global id — the same
+    ``{entity_id: neighbour set}`` shape the other blockers emit.
     """
-    if not pairs:
-        return pd.DataFrame()
-    li, ri = map(np.asarray, zip(*pairs))
-
-    def block(attr: str) -> pd.DataFrame:
-        col = data.entities[attr].astype(str).str.lower().to_numpy()
-        uniq, inv = np.unique(col, return_inverse=True)
-        toks_u = list(map(_WS.tokenize, uniq))
-        ngs_u = list(map(_char_ngrams, uniq))
-        a, b = col[li], col[ri]
-        ia, ib = inv[li], inv[ri]
-        toks_a, toks_b = [toks_u[i] for i in ia], [toks_u[i] for i in ib]
-        ngs_a, ngs_b = [ngs_u[i] for i in ia], [ngs_u[i] for i in ib]
-        return pd.DataFrame({
-            f"{attr}_jaccardq3": [_JACCARD.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(ngs_a, ngs_b)],
-            f"{attr}_jaccardw":  [_JACCARD.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(toks_a, toks_b)],
-            f"{attr}_cosinew":   [_COSINE.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(toks_a, toks_b)],
-            f"{attr}_jaro":      [1.0 - _JARO.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(a, b)],
-            f"{attr}_lev":       [1.0 - _LEV.compare(x, y) if x and y else 0.0
-                                  for x, y in zip(a, b)],
-            f"{attr}_exact":     np.where((a == b) & (a != ""), 1.0, 0.0),
-        })
-
-    return (
-        pd.concat(map(block, attributes), axis=1)
-        .pipe(lambda df: df.loc[:, df.nunique(dropna=False) > 1])
-    )
+    if data.is_dirty_er:
+        raise ValueError("precomputed blocking supports clean-clean ER only")
+    v1, v2 = (np.asarray(v).astype(np.float32) for v in vectors)  # own copies
+    if len(v1) != data.num_of_entities_1 or len(v2) != data.num_of_entities_2:
+        raise ValueError(
+            f"embedding rows ({len(v1)}, {len(v2)}) do not match table sizes "
+            f"({data.num_of_entities_1}, {data.num_of_entities_2}) — "
+            "vectors not row-aligned with this Data")
+    if similarity_distance == "cosine":
+        faiss.normalize_L2(v1)
+        faiss.normalize_L2(v2)
+        index = faiss.IndexFlatIP(v1.shape[1])
+    elif similarity_distance == "euclidean":
+        index = faiss.IndexFlatL2(v1.shape[1])
+    else:
+        raise ValueError("similarity_distance must be 'cosine' or 'euclidean'")
+    index.add(v1)
+    _, neighbours = index.search(v2, min(top_k, len(v1)))
+    limit = data.dataset_limit
+    return {limit + j: set(row.tolist()) for j, row in enumerate(neighbours)}
 
 
 class ZeroERMatcher(PYJEDAIFeature):
     """Unsupervised matching via ZeroER's EM over string-similarity features.
 
     Consumes any pyJedAI block structure (cleaned candidate-pair dict),
-    builds a per-attribute similarity feature matrix, and runs the
-    ``ZeroerModel`` from ``zeroer.py``. Predicted matches (P_M >= 0.5) become
-    weighted edges.
+    builds the exact ZeroER/Magellan similarity-feature matrix
+    (``zeroer_features.build_zeroer_features``), and runs the ``ZeroerModel``
+    from ``zeroer.py``. Predicted matches (P_M >= 0.5) become weighted edges.
     """
 
     _method_name = "ZeroER Unsupervised Matching"
@@ -149,9 +122,17 @@ class ZeroERMatcher(PYJEDAIFeature):
         for entity_id, candidates in blocks.items():
             for cand in candidates:
                 candidate_pairs.append((entity_id, cand))
+        if not data.is_dirty_er:
+            # orient as (left-table row, right-table row) — the feature
+            # functions are left/right-asymmetric (e.g. monge_elkan)
+            limit = data.dataset_limit
+            candidate_pairs = [(a, b) if a < limit else (b, a)
+                               for a, b in candidate_pairs]
 
         feat_t0 = time.time()
-        self.feature_matrix = _build_feature_matrix(candidate_pairs, data, attrs)
+        self.feature_matrix = build_zeroer_features(
+            candidate_pairs, data.entities, attrs,
+            dataset_limit=None if data.is_dirty_er else data.dataset_limit)
         self.features_time = time.time() - feat_t0
 
         if self.feature_matrix.shape[1] == 0:
@@ -232,10 +213,18 @@ class ZeroEREstimator:
     blocker:
         ``'embeddings'`` -> ``EmbeddingsNNBlockBuilding`` (PLM nearest-neighbour
         candidate generation); ``'standard'`` -> ``StandardBlocking`` +
-        ``BlockPurging`` + ``BlockFiltering`` + ``WeightedEdgePruning``.
+        ``BlockPurging`` + ``BlockFiltering`` + ``WeightedEdgePruning``;
+        ``'precomputed'`` -> faiss k-NN over injected record embeddings
+        (``vectors``), nothing embedded live.
     vectorizer, top_k, similarity_distance:
         ``EmbeddingsNNBlockBuilding`` knobs (ignored when ``blocker='standard'``).
         Note ``EmbeddingsNNBlockBuilding`` supports only FAISS for the NN search.
+        ``top_k``/``similarity_distance`` also drive the precomputed branch.
+    vectors:
+        ``(left, right)`` record-embedding matrices, row-aligned with the two
+        tables (``utils.load_embeddings``). Required when
+        ``blocker='precomputed'``; injected rather than loaded here so the
+        estimator stays ignorant of the on-disk embedding layout.
     smoothing_factor, block_filtering_ratio, weighting_scheme:
         Standard-branch cleaning knobs (ignored when ``blocker='embeddings'``):
         ``BlockPurging`` purge threshold, ``BlockFiltering`` keep-ratio, and the
@@ -258,10 +247,15 @@ class ZeroEREstimator:
         attributes: Optional[List[str]] = None,
         c_bay: float = 0.1,
         max_iter: int = 40,
+        vectors: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     ) -> None:
-        if blocker not in ("embeddings", "standard"):
-            raise ValueError("blocker must be 'embeddings' or 'standard'")
+        if blocker not in ("embeddings", "standard", "precomputed"):
+            raise ValueError(
+                "blocker must be 'embeddings', 'standard' or 'precomputed'")
+        if blocker == "precomputed" and vectors is None:
+            raise ValueError("blocker='precomputed' needs vectors=(left, right)")
         self.blocker = blocker
+        self.vectors = vectors
         self.vectorizer = vectorizer
         self.top_k = top_k
         self.similarity_distance = similarity_distance
@@ -292,6 +286,9 @@ class ZeroEREstimator:
                 save_embeddings=True,
                 tqdm_disable=True,
             )
+        elif self.blocker == "precomputed":
+            blocks = _precomputed_nn_blocks(
+                self.vectors, data, self.top_k, self.similarity_distance)
         else:
             blocks = StandardBlocking(disable_ray=True).build_blocks(data, tqdm_disable=True)
             blocks = BlockPurging(

@@ -5,6 +5,7 @@ Utils for the ZeroER++ experiments
 from __future__ import annotations
 
 import csv
+import glob
 import os
 import random
 from typing import Tuple
@@ -22,6 +23,11 @@ from pyjedai.datamodel import Data
 # zeroer-experiments/datasets/, resolved relative to this file (cwd-independent).
 BENCH_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "datasets"))
+
+# Precomputed LLM record embeddings, one .npy per side per model, row-aligned
+# with left.csv / right.csv (see datasets/embeddings/README.md):
+#   datasets/embeddings/<dataset>/<model-stem>_{left,right}.npy
+EMB_DIR = os.path.join(BENCH_DIR, "embeddings")
 
 # Fraction of each benchmark kept for the Optuna *tuning* partition (see
 # ``load_data(partition=True)``). The study tunes on this slice only; the best
@@ -59,14 +65,59 @@ def trial_budget(
     coverage: float = 1 / 3
 ) -> int:
     """TPE warm-up + ~``coverage`` of the discrete grid (a budget derived from
-    the space, not a magic number). ``c_bay``/``smoothing_factor``/``ratio`` add
-    *continuous* dims on top, so the space can't be enumerated — sampling does
-    real work and ``coverage`` just sets how much of the discrete cells to visit.
+    the space, not a magic number). Generic over experiments: categorical lists
+    and int ``(lo, hi)`` ranges multiply into the grid; float ranges are
+    *continuous* dims on top, so sampling does real work there and ``coverage``
+    just sets how much of the discrete cells to visit.
     """
-    lo, hi = space["top_k"]
-    emb_cells = len(space["vectorizer"]) * (hi - lo + 1) * len(space["similarity_distance"])
-    std_cells = len(space["weighting_scheme"])     # smoothing/ratio are continuous
-    return n_startup_trials + int((emb_cells + std_cells) * coverage)
+    cells = 1
+    for spec in space.values():
+        if isinstance(spec, list):
+            cells *= len(spec)
+        elif isinstance(spec, tuple) and all(isinstance(v, int) for v in spec):
+            lo, hi = spec
+            cells *= hi - lo + 1
+    return n_startup_trials + int(cells * coverage)
+
+
+def embedding_models(name: str, base: str = EMB_DIR) -> list:
+    """Sorted model stems with precomputed embeddings for a dataset.
+
+    A stem is the on-disk filename minus the ``_left.npy`` suffix (it starts
+    with the embedding-model name, e.g. ``Qwen_Qwen3-Embedding-4B``); only
+    models with both sides present count.
+    """
+    d = os.path.join(base, name)
+    stems = sorted(os.path.basename(p)[:-len("_left.npy")]
+                   for p in glob.glob(os.path.join(d, "*_left.npy")))
+    return [s for s in stems
+            if os.path.exists(os.path.join(d, f"{s}_right.npy"))]
+
+
+def load_embeddings(name: str, model: str, data,
+                    base: str = EMB_DIR) -> Tuple[np.ndarray, np.ndarray]:
+    """Record vectors for ``data``'s two tables, as float32 (faiss-ready).
+
+    The .npy files are row-aligned with the *full* left.csv / right.csv;
+    ``data`` may be a subsampled partition, so rows are re-selected by matching
+    the partition's id column against the full table's ids — an identity
+    reindex on the full dataset.
+    """
+    d = os.path.join(base, name)
+    out = []
+    for side, table, id_col in (("left", data.dataset_1, data.id_column_name_1),
+                                ("right", data.dataset_2, data.id_column_name_2)):
+        vec = np.load(os.path.join(d, f"{model}_{side}.npy"), mmap_mode="r")
+        full_ids = pd.read_csv(os.path.join(BENCH_DIR, name, f"{side}.csv"),
+                               usecols=[id_col]).astype(str)[id_col]
+        if len(vec) != len(full_ids):
+            raise ValueError(
+                f"{model}_{side}.npy has {len(vec)} rows but {name}/{side}.csv "
+                f"has {len(full_ids)} — embeddings not row-aligned")
+        pos = pd.Series(np.arange(len(full_ids)), index=full_ids)
+        rows = pos[table[id_col].astype(str)].to_numpy()
+        out.append(np.asarray(vec[rows], dtype=np.float32))
+    return tuple(out)
 
 
 def _subsample(
@@ -263,12 +314,30 @@ def _round(x, n):
 
 
 # --------------------------------------------------------------------------
-# Study runners — generic over the objective
+# Study runners — generic over the objective. The objective declares its own
+# identity and search behaviour, so a new experiment never touches the runners:
+#   directions   : optuna objective directions (F1 first, by convention)
+#   experiment   : study-name suffix -> "<dataset>_<experiment>[_full]"
+#   space        : search space dict (lets ``n_trials=None`` derive a budget)
+#   seed_trials(): optional param dicts enqueued once on a fresh study,
+#                  guaranteeing coverage TPE alone cannot (e.g. every model)
 # --------------------------------------------------------------------------
+def _study_name(dataset, objective, full=False) -> str:
+    exp = getattr(objective, "experiment", "")
+    name = f"{dataset}_{exp}" if exp else dataset
+    return f"{name}_full" if full else name
+
+
 def run_study(dataset, make_objective, n_trials, n_startup_trials,
               seed=0, storage=STORAGE) -> optuna.Study:
-    """Tune one dataset on its ~tune_fraction partition; resumable in optuna.db."""
+    """Tune one dataset on its ~tune_fraction partition; resumable in optuna.db.
+
+    ``n_trials=None`` derives the budget from the objective's own ``space``
+    (needed when the space is per-dataset, e.g. discovered embedding models).
+    """
     objective = make_objective(dataset, partition=True)   # cheap: just loads the slice
+    if n_trials is None:
+        n_trials = trial_budget(objective.space, n_startup_trials)
     sampler = optuna.samplers.TPESampler(
         seed=seed,
         n_startup_trials=n_startup_trials,
@@ -276,15 +345,18 @@ def run_study(dataset, make_objective, n_trials, n_startup_trials,
         group=True,                  # handle the conditional (per-branch) space
     )
     study = optuna.create_study(
-        study_name=dataset,
+        study_name=_study_name(dataset, objective),
         storage=storage,
         load_if_exists=True,
         directions=objective.directions,
         sampler=sampler,
     )
+    if not study.trials:             # fresh study only: resuming re-enqueues nothing
+        for params in getattr(objective, "seed_trials", list)():
+            study.enqueue_trial(params)
     # A degenerate config can make e.g. ZeroER's EM diverge (scipy.optimize.newton
     # raises RuntimeError when *all* covariance updates fail to converge) or
-    # yield an all-constant feature matrix (RuntimeError). 
+    # yield an all-constant feature matrix (RuntimeError).
     study.optimize(objective, n_trials=n_trials, catch=(RuntimeError,))
     return study                          # persisted in optuna.db; CSVs via export()
 
@@ -303,16 +375,17 @@ def retrain_full(dataset, make_objective, seed=0,
     the objective's ``source_trial`` set to stamp each full trial. That stamp
     lets the phase resume — already-retrained front configs are skipped.
     """
+    objective = make_objective(dataset, partition=False)   # full data, loaded once
+    tune_name = _study_name(dataset, objective)
     try:
-        tune = optuna.load_study(study_name=dataset, storage=storage)
+        tune = optuna.load_study(study_name=tune_name, storage=storage)
     except KeyError:
-        print(f"  skip {dataset}_full: no tuning study yet (run the sweep first)",
+        print(f"  skip {tune_name}_full: no tuning study yet (run the sweep first)",
               flush=True)
         return None
-    front = tune.best_trials
-    objective = make_objective(dataset, partition=False)   # full data, loaded once
+    front = front_trials(tune)
     full = optuna.create_study(
-        study_name=f"{dataset}_full",
+        study_name=_study_name(dataset, objective, full=True),
         storage=storage,
         load_if_exists=True,
         directions=objective.directions,
@@ -323,7 +396,7 @@ def retrain_full(dataset, make_objective, seed=0,
     done = {t.user_attrs.get("source_trial") for t in full.trials}
     todo = [t for t in front if t.number not in done]
     if not todo:
-        print(f"  {dataset}_full: all {len(front)} front configs already retrained",
+        print(f"  {full.study_name}: all {len(front)} front configs already retrained",
               flush=True)
         return full
     for src in todo:
@@ -335,11 +408,49 @@ def retrain_full(dataset, make_objective, seed=0,
     return full
 
 
+def _blocking_stats(trial) -> Tuple[float, float]:
+    """(candset_size, pair_completeness) of a trial, whichever experiment.
+
+    New objectives record both as user attrs; the legacy 3-objective studies
+    carried them as objective values 2 and 3 (candset_size was an attr too).
+    """
+    cs = trial.user_attrs.get(
+        "candset_size", trial.values[1] if len(trial.values) > 1 else np.nan)
+    pc = trial.user_attrs.get(
+        "pair_completeness", trial.values[2] if len(trial.values) > 2 else np.nan)
+    return cs, pc
+
+
+# Single-objective winners: trials within this of the best F1 count as ties.
+F1_TIE_DELTA = 0.005
+
+
+def front_trials(study, delta: float = F1_TIE_DELTA) -> list:
+    """The trials the views/retrain treat as a study's front.
+
+    Multi-objective studies keep their Pareto front as-is. Single-objective
+    (F1-max) studies get a blocking-aware tie-break: every completed trial
+    within ``delta`` of the best F1 counts as a tie, and the one with the
+    smallest candidate set wins — at equal F1, fewer surviving pairs is
+    strictly preferable (same rationale as ``blocking_recall``: don't reward a
+    blocker for keeping junk the matcher then has to reject).
+    """
+    if len(study.directions) > 1:
+        return study.best_trials
+    done = [t for t in study.trials if t.values is not None]
+    if not done:
+        return []
+    top = max(t.values[0] for t in done)
+    ties = [t for t in done if t.values[0] >= top - delta]
+    return [min(ties, key=lambda t: (
+        np.nan_to_num(_blocking_stats(t)[0], nan=np.inf), -t.values[0]))]
+
+
 def _print_front(study, label: str) -> None:
-    for t in study.best_trials:                      # the Pareto-optimal trials
-        f1, candset, pair_completeness = t.values
-        print(f"  {label}: F1={f1:.4f} candset={int(candset)} "
-              f"PC={pair_completeness:.4f} {t.params}", flush=True)
+    for t in front_trials(study):                    # Pareto front / tie-broken best
+        cs, pc = _blocking_stats(t)
+        print(f"  {label}: F1={t.values[0]:.4f} candset={int(cs)} "
+              f"PC={pc:.4f} {t.params}", flush=True)
 
 
 def tune_all(make_objective, n_trials, n_startup_trials, seed=0,
@@ -366,51 +477,44 @@ def retrain_all(make_objective, seed=0, storage=STORAGE) -> None:
 def _pareto_row(dataset: str, trial, phase: str = "partition") -> dict:
     """Flatten one Pareto-optimal trial into a CSV row.
 
-    Conditional params are read with ``.get`` (a branch's params are absent from
-    the other branch's trials); ``_round`` tolerates the resulting ``None``s.
+    Generic over experiments: F1 is the first objective value by convention;
+    the trial's params and user attrs (candset_size, pair_completeness,
+    timings, source_trial, ...) go in as-is, so a new experiment's knobs need
+    no view changes.
     """
-    f1, candset, pair_completeness = trial.values
-    p = trial.params
-    return dict(
+    cs, pc = _blocking_stats(trial)
+    row = dict(
         dataset=dataset,
         phase=phase,                       # "partition" (tuned) or "full" (retrained)
-        F1=round(f1, 4),
-        candset_size=int(candset),
-        blocking_recall=round(pair_completeness, 4),
-        blocker=p["blocker"],
-        # embeddings branch
-        vectorizer=p.get("vectorizer"),
-        top_k=p.get("top_k"),
-        similarity_distance=p.get("similarity_distance"),
-        # standard branch
-        smoothing_factor=_round(p.get("smoothing_factor"), 4),
-        block_filtering_ratio=_round(p.get("block_filtering_ratio"), 4),
-        weighting_scheme=p.get("weighting_scheme"),
-        # matcher
-        c_bay=_round(p.get("c_bay"), 5),
-        blocking_seconds=trial.user_attrs.get("blocking_seconds"),
-        em_seconds=trial.user_attrs.get("em_seconds"),
-        # full trials only: the partition trial this config was chosen from
-        source_trial=trial.user_attrs.get("source_trial"),
+        F1=round(trial.values[0], 4),
+        candset_size=int(cs),
+        blocking_recall=_round(pc, 4),
     )
+    row.update({k: (_round(v, 5) if isinstance(v, float) else v)
+                for k, v in trial.params.items()})
+    row.update({k: v for k, v in trial.user_attrs.items()
+                if k not in ("candset_size", "pair_completeness")})
+    return row
 
 
-def export(storage=STORAGE) -> None:
+def export(storage=STORAGE, experiment: str = "") -> None:
     """Regenerate the CSV views from optuna.db (the source of truth).
 
     Reads whatever studies are already in the DB — run it after a full or even a
-    partial sweep. For each dataset it dumps the partition study (``<dataset>``)
-    and, if present, its full-data retrain (``<dataset>_full``) as verbatim
-    ``trials_dataframe`` logs, then collects the Pareto-optimal trials of each
-    phase into ``pareto_fronts.csv`` (partition) and ``full_pareto_fronts.csv``
-    (full) — the latter being the configs' honest end-to-end numbers.
+    partial sweep. For each dataset it dumps the partition study
+    (``<dataset>[_<experiment>]``) and, if present, its full-data retrain
+    (``..._full``) as verbatim ``trials_dataframe`` logs, then collects the
+    Pareto-optimal trials of each phase into ``pareto_fronts[_<experiment>].csv``
+    (partition) and ``full_pareto_fronts[_<experiment>].csv`` (full) — the
+    latter being the configs' honest end-to-end numbers.
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    tag = f"_{experiment}" if experiment else ""
     partition_rows, full_rows, n_studies = [], [], 0
     for dataset in DATASETS:
         for phase, suffix, sink in (("partition", "", partition_rows),
                                     ("full", "_full", full_rows)):
-            study_name = f"{dataset}{suffix}"
+            study_name = f"{dataset}{tag}{suffix}"
             try:
                 study = optuna.load_study(study_name=study_name, storage=storage)
             except KeyError:
@@ -418,19 +522,21 @@ def export(storage=STORAGE) -> None:
             n_studies += 1
             study.trials_dataframe().to_csv(
                 os.path.join(OUTPUT_DIR, f"{study_name}_trials.csv"), index=False)
-            sink.extend(_pareto_row(dataset, t, phase) for t in study.best_trials)
+            sink.extend(_pareto_row(dataset, t, phase) for t in front_trials(study))
 
     if not partition_rows and not full_rows:
         print(f"No studies found in {storage} — run the sweep first.")
         return
     written = []
-    for rows, fname in ((partition_rows, "pareto_fronts.csv"),
-                        (full_rows, "full_pareto_fronts.csv")):
+    for rows, fname in ((partition_rows, f"pareto_fronts{tag}.csv"),
+                        (full_rows, f"full_pareto_fronts{tag}.csv")):
         if not rows:
             continue
         path = os.path.join(OUTPUT_DIR, fname)
         with open(path, "w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+            # rows may differ in keys across studies — union, first-seen order
+            fieldnames = list(dict.fromkeys(k for r in rows for k in r))
+            w = csv.DictWriter(fh, fieldnames=fieldnames, restval="")
             w.writeheader()
             w.writerows(rows)
         written.append(f"{fname} ({len(rows)} Pareto trials)")
@@ -450,17 +556,19 @@ def _load_studies(
     suffix: str,
     storage=STORAGE,
     study_name: str | None = None,
+    experiment: str = "",
 ):
     """(dataset, study) for every matching study in optuna.db that has at least
     one completed trial."""
     out = []
 
     datasets = [study_name] if study_name is not None else DATASETS
+    tag = f"_{experiment}" if experiment else ""
 
     for dataset in datasets:
         try:
             s = optuna.load_study(
-                study_name=f"{dataset}{suffix}",
+                study_name=f"{dataset}{tag}{suffix}",
                 storage=storage,
             )
         except KeyError:
@@ -477,13 +585,14 @@ def summarize_fronts(
     suffix: str,
     storage=STORAGE,
     study_name: str | None = None,
+    experiment: str = "",
 ) -> None:
-    studies = _load_studies(suffix, storage, study_name)
+    studies = _load_studies(suffix, storage, study_name, experiment)
 
     rows = [
         _pareto_row(dataset, t, phase)
         for dataset, s in studies
-        for t in s.best_trials
+        for t in front_trials(s)
     ]
 
     if not rows:
@@ -507,8 +616,9 @@ def plot_pareto_fronts(
     suffix: str,
     storage=STORAGE,
     study_name: str | None = None,
+    experiment: str = "",
 ) -> None:
-    studies = _load_studies(suffix, storage, study_name)
+    studies = _load_studies(suffix, storage, study_name, experiment)
 
     if not studies:
         return
@@ -522,11 +632,12 @@ def plot_pareto_fronts(
 
     for r, (dataset, s) in enumerate(studies):
         done = [t for t in s.trials if t.values is not None]
-        front = {t.number for t in s.best_trials}
+        front = {t.number for t in front_trials(s)}
 
         f1 = np.array([t.values[0] for t in done])
-        cs = np.array([t.values[1] for t in done])
-        pc = np.array([t.values[2] for t in done])
+        stats = [_blocking_stats(t) for t in done]
+        cs = np.array([c for c, _ in stats], dtype=float)
+        pc = np.array([p for _, p in stats], dtype=float)
         opt = np.array([t.number in front for t in done])
 
         for c, (x, xlabel, logx) in enumerate(
@@ -563,10 +674,11 @@ def plot_pareto_fronts(
 
         axes[r][0].legend(loc="lower right", fontsize=8)
 
+    label = f"{experiment} {phase}" if experiment else phase
     title = (
-        f"ZeroER++ {phase} Pareto fronts"
+        f"ZeroER++ {label} Pareto fronts"
         if study_name is None
-        else f"ZeroER++ {phase} Pareto fronts — {study_name}"
+        else f"ZeroER++ {label} Pareto fronts — {study_name}"
     )
 
     fig.suptitle(title, y=1.0, fontsize=13)
@@ -577,6 +689,7 @@ def plot_pareto_fronts(
 def show_results(
     storage=STORAGE,
     study_name: str | None = None,
+    experiment: str = "",
 ) -> None:
     """Best configs + Pareto-front plots for whichever phases exist."""
 
@@ -586,9 +699,9 @@ def show_results(
         ("partition", ""),
         ("full", "_full"),
     ):
-        if _load_studies(suffix, storage, study_name):
-            summarize_fronts(phase, suffix, storage, study_name)
-            plot_pareto_fronts(phase, suffix, storage, study_name)
+        if _load_studies(suffix, storage, study_name, experiment):
+            summarize_fronts(phase, suffix, storage, study_name, experiment)
+            plot_pareto_fronts(phase, suffix, storage, study_name, experiment)
             shown = True
 
     if not shown:
