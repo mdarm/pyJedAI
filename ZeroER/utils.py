@@ -8,6 +8,7 @@ import csv
 import glob
 import os
 import random
+import time
 from typing import Tuple
 
 import optuna
@@ -18,6 +19,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from pyjedai.datamodel import Data
+
+from pyjedai_module import nn_search
+from zeroer_features import build_zeroer_features
 
 # Self-contained: the five gold-standard datasets live next to this file under
 # zeroer-experiments/datasets/, resolved relative to this file (cwd-independent).
@@ -118,6 +122,63 @@ def load_embeddings(name: str, model: str, data,
         rows = pos[table[id_col].astype(str)].to_numpy()
         out.append(np.asarray(vec[rows], dtype=np.float32))
     return tuple(out)
+
+
+class BlockFeatureCache:
+    """Blocking + exact-feature reuse across a sweep's trials.
+
+    k-NN candidate lists are nested in ``top_k`` (the top-3 neighbours are a
+    prefix of the top-10 list), so blocking and ZeroER feature generation run
+    **once** per (embedding model, similarity distance), at ``k_max``; every
+    trial with ``top_k <= k_max`` is served as a row slice. Feature values are
+    pair-local (no cross-pair statistics), so slices are exact — the constant-
+    column drop, the one subset-dependent step, is re-applied per slice,
+    matching ``build_zeroer_features(drop_zero_variance=True)`` on the same
+    pairs. Builds are parallelised over pairs (``n_jobs``).
+
+    Entries stay in memory for the cache's lifetime: at most
+    (#models x #distances) matrices of ``k_max x n_right`` feature rows.
+    """
+
+    def __init__(self, dataset, data, attributes, k_max, n_jobs=-1):
+        self.dataset = dataset
+        self.data = data
+        self.attributes = attributes
+        self.k_max = k_max
+        self.n_jobs = n_jobs
+        self.limit = data.dataset_limit
+        self._store = {}          # (model, distance) -> (nbrs, pairs, features)
+        self.build_seconds = {}   # same key -> one-time blocking+feature cost
+
+    def _built(self, model, distance):
+        key = (model, distance)
+        if key not in self._store:
+            t0 = time.time()
+            v1, v2 = load_embeddings(self.dataset, model, self.data)
+            nbrs = nn_search(v1, v2, self.k_max, distance)
+            pairs = np.column_stack([nbrs.ravel(),
+                                     self.limit + np.repeat(np.arange(len(nbrs)),
+                                                            nbrs.shape[1])])
+            features = build_zeroer_features(
+                pairs, self.data.entities, self.attributes,
+                dataset_limit=self.limit, drop_zero_variance=False,
+                n_jobs=self.n_jobs)
+            self._store[key] = (nbrs, pairs, features)
+            self.build_seconds[key] = round(time.time() - t0, 3)
+        return self._store[key]
+
+    def get(self, model, distance, top_k):
+        """(pairs, features, blocks) for one trial, rows aligned; ``blocks``
+        is the ``{right_global_id: neighbour set}`` dict the metrics expect."""
+        nbrs, pairs, features = self._built(model, distance)
+        if top_k > nbrs.shape[1]:
+            raise ValueError(f"top_k={top_k} exceeds cached k_max={nbrs.shape[1]}")
+        keep = np.tile(np.arange(nbrs.shape[1]), len(nbrs)) < top_k
+        sliced = features.loc[keep]
+        sliced = sliced.loc[:, sliced.nunique() > 1].reset_index(drop=True)
+        blocks = {self.limit + j: set(row.tolist())
+                  for j, row in enumerate(nbrs[:, :top_k])}
+        return pairs[keep], sliced, blocks
 
 
 def _subsample(

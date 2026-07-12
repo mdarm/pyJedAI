@@ -46,6 +46,23 @@ from zeroer_features import build_zeroer_features
 __all__ = ["ZeroERMatcher", "ZeroEREstimator"]
 
 
+def nn_search(v1, v2, k: int, similarity_distance: str) -> np.ndarray:
+    """Ordered k-NN of every v2 row among v1 rows: an (n2, k) row-index
+    matrix, nearest first — so the top-j neighbours are its first j columns."""
+    v1, v2 = (np.asarray(v).astype(np.float32) for v in (v1, v2))  # own copies
+    if similarity_distance == "cosine":
+        faiss.normalize_L2(v1)
+        faiss.normalize_L2(v2)
+        index = faiss.IndexFlatIP(v1.shape[1])
+    elif similarity_distance == "euclidean":
+        index = faiss.IndexFlatL2(v1.shape[1])
+    else:
+        raise ValueError("similarity_distance must be 'cosine' or 'euclidean'")
+    index.add(v1)
+    _, neighbours = index.search(v2, min(k, len(v1)))
+    return neighbours
+
+
 def _precomputed_nn_blocks(vectors, data, top_k: int,
                            similarity_distance: str) -> dict:
     """k-NN blocking over precomputed record embeddings.
@@ -57,22 +74,13 @@ def _precomputed_nn_blocks(vectors, data, top_k: int,
     """
     if data.is_dirty_er:
         raise ValueError("precomputed blocking supports clean-clean ER only")
-    v1, v2 = (np.asarray(v).astype(np.float32) for v in vectors)  # own copies
+    v1, v2 = vectors
     if len(v1) != data.num_of_entities_1 or len(v2) != data.num_of_entities_2:
         raise ValueError(
             f"embedding rows ({len(v1)}, {len(v2)}) do not match table sizes "
             f"({data.num_of_entities_1}, {data.num_of_entities_2}) — "
             "vectors not row-aligned with this Data")
-    if similarity_distance == "cosine":
-        faiss.normalize_L2(v1)
-        faiss.normalize_L2(v2)
-        index = faiss.IndexFlatIP(v1.shape[1])
-    elif similarity_distance == "euclidean":
-        index = faiss.IndexFlatL2(v1.shape[1])
-    else:
-        raise ValueError("similarity_distance must be 'cosine' or 'euclidean'")
-    index.add(v1)
-    _, neighbours = index.search(v2, min(top_k, len(v1)))
+    neighbours = nn_search(v1, v2, top_k, similarity_distance)
     limit = data.dataset_limit
     return {limit + j: set(row.tolist()) for j, row in enumerate(neighbours)}
 
@@ -130,19 +138,29 @@ class ZeroERMatcher(PYJEDAIFeature):
                                for a, b in candidate_pairs]
 
         feat_t0 = time.time()
-        self.feature_matrix = build_zeroer_features(
+        feature_matrix = build_zeroer_features(
             candidate_pairs, data.entities, attrs,
             dataset_limit=None if data.is_dirty_er else data.dataset_limit)
         self.features_time = time.time() - feat_t0
 
-        if self.feature_matrix.shape[1] == 0:
+        self.match_pairs(candidate_pairs, feature_matrix)
+        self.execution_time = time.time() - start
+        return self.pairs
+
+    def match_pairs(self, candidate_pairs, feature_matrix: pd.DataFrame) -> Graph:
+        """EM + thresholding on an externally built feature matrix (rows
+        aligned with ``candidate_pairs``). ``predict`` lands here after
+        building the matrix itself; sweeps that cache features across trials
+        (``utils.BlockFeatureCache``) call it directly."""
+        if feature_matrix.shape[1] == 0:
             raise RuntimeError("Feature matrix is empty after dropping constant columns.")
+        self.feature_matrix = feature_matrix
 
         em_t0 = time.time()
-        y_init = get_y_init_given_threshold(self.feature_matrix)
+        y_init = get_y_init_given_threshold(feature_matrix)
         _, P_M = ZeroerModel.run_em(
-            similarity_matrixs=(self.feature_matrix.values, None, None),
-            feature_names=self.feature_matrix.columns.tolist(),
+            similarity_matrixs=(feature_matrix.values, None, None),
+            feature_names=feature_matrix.columns.tolist(),
             y_inits=(y_init, None, None),
             id_dfs=(None, None, None),
             LR_dup_free=False,
@@ -156,9 +174,7 @@ class ZeroERMatcher(PYJEDAIFeature):
         self.pairs = Graph()
         for (id1, id2), p in zip(candidate_pairs, P_M):
             if p >= 0.5:
-                self.pairs.add_edge(id1, id2, weight=float(p))
-
-        self.execution_time = time.time() - start
+                self.pairs.add_edge(int(id1), int(id2), weight=float(p))
         return self.pairs
 
     def evaluate(self,

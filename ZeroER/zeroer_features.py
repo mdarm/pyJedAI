@@ -213,9 +213,10 @@ def _compute(sim, tok_key, raw_l, raw_r, null, strs_l, strs_r, toks):
 
 def build_zeroer_features(pairs, entities: pd.DataFrame, attributes,
                           dataset_limit: int | None = None,
-                          drop_zero_variance: bool = True) -> pd.DataFrame:
+                          drop_zero_variance: bool = True,
+                          n_jobs: int = 1) -> pd.DataFrame:
     """
-    pairs: list of (left_row, right_row) positional indices into `entities`
+    pairs: (left_row, right_row) positional indices into `entities`
         (pyJedAI candidate pairs: right-table rows offset by dataset_limit).
     entities: the record table — for clean-clean ER the concat of both tables
         (pyJedAI's data.entities), for dedup a single table.
@@ -224,9 +225,24 @@ def build_zeroer_features(pairs, entities: pd.DataFrame, attributes,
     dataset_limit: first row of the right table (pyJedAI's data.dataset_limit);
         None = single-table dedup. Needed because upstream types each table
         separately, then upgrades mismatched types to the higher rank.
+    n_jobs: joblib workers for the pair loop (-1 = all cores). Per-pair values
+        are independent and type inference/constant-drop are computed globally,
+        so the parallel result is identical to the serial one.
     """
-    if not pairs:
+    if len(pairs) == 0:
         return pd.DataFrame()
+    if n_jobs != 1 and len(pairs) >= 2000:
+        from joblib import Parallel, delayed, effective_n_jobs
+        chunks = np.array_split(np.arange(len(pairs)), effective_n_jobs(n_jobs))
+        parts = Parallel(n_jobs=n_jobs)(
+            delayed(build_zeroer_features)(
+                [pairs[i] for i in chunk], entities, attributes,
+                dataset_limit, drop_zero_variance=False)
+            for chunk in chunks if len(chunk))
+        fm = pd.concat(parts, ignore_index=True)
+        if drop_zero_variance:
+            fm = fm.loc[:, fm.nunique() > 1]
+        return fm
     li, ri = map(np.asarray, zip(*pairs))
     blocks = []
     for attr in attributes:
