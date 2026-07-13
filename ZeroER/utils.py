@@ -44,14 +44,14 @@ DEFAULT_TUNE_FRACTION = 0.3
 #   - amazon_googleproducts: Amazon's 'title' and Google's 'name' are the same
 #     field under different names, so the right table is renamed 'name'->'title'.
 DATASETS = {
-    "fodors_zagats":         dict(attributes=["name", "addr", "city", "phone"],
-                                  tune_fraction=0.3),
-    "dblp_acm":              dict(attributes=["title", "authors", "venue", "year"],
-                                  tune_fraction=0.3),
-    "dblp_scholar":          dict(attributes=["title", "authors", "venue", "year"],
-                                  tune_fraction=0.3),
-    "abt_buy":               dict(attributes=["name", "description", "price"],
-                                  tune_fraction=0.3),
+        #    "fodors_zagats":         dict(attributes=["name", "addr", "city", "phone"],
+        #                                  tune_fraction=0.3),
+        #    "dblp_acm":              dict(attributes=["title", "authors", "venue", "year"],
+        #                                  tune_fraction=0.3),
+        #    "dblp_scholar":          dict(attributes=["title", "authors", "venue", "year"],
+        #                                  tune_fraction=0.3),
+        #    "abt_buy":               dict(attributes=["name", "description", "price"],
+        #                                  tune_fraction=0.3),
     "amazon_googleproducts": dict(attributes=["title", "description", "manufacturer", "price"],
                                   tune_fraction=0.3, rename_2={"name": "title"}),
 }
