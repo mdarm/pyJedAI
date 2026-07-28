@@ -55,18 +55,21 @@ Wu, R., Chaba, S., Sawlani, S., Chu, X., & Thirumuruganathan, S.
 SIGMOD Conference 2021, pp. 1149–1164.
 
 
-## To-do (28/07/2026)
+## To-do (06/08/2026)
 
+- [ ] Recreate embeddings for large LLMs (check Kimi and larger LLMs as well); take care for left/right padded decoder  models
 - [ ] Fully reproduce ZeroER's feature generation and test it (issue here, revisit)
 - [ ] Create unit tests for replicating ZeroER results (on all benchmarks)
 - [ ] Generalise to integrate one-column benchmarks (all possible pairs from a table)
-- [ ] Reporm hyperparameter tuning, by also tweaking ZeroER's configs (EM params etc.) -> discuss with George
-- [ ] Assess blocking-influence, using LLM embeddings, on all ZeroER benchmarks (emphasise blocking quality, no other front; assess on recall only) 
+- [ ] Report hyperparameter tuning, by also tweaking ZeroER's configs (EM params etc.) -> discuss with George
+- [ ] Assess blocking-influence, using LLM embeddings, on all ZeroER benchmarks (emphasise blocking quality, no other front; assess on recall and number of pairs) 
 	- [ ] Explore huge discrepancy on AG & AB datasets
+- [ ] Assess semantic similarity using LLM embeddings
+- [ ] KPIs should be an aggregation of sorts over all benchmark datasets (goal of hyperparameter tuning)
 
 notes: transitive closure might negatively impact results (abt-buy): threshold for decision is a hyperparameter; experiment with left-right, right-left
 
-### ideal target: 31/08/2026
+### ideal target: 15/09/2026
 
 - [ ] Fully understand the reasoning behind ZeroER and replicate it from scratch (potential PyTorch implementation)
 - [ ] Experiment with the feature generation used (Pandas vectorisation & Polars implementation)
