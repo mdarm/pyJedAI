@@ -21,7 +21,6 @@ Run:  pytest tests/ -v            (fodors_zagats only, ~1 min)
       RUN_SLOW=1 pytest tests/ -v (all datasets, tens of minutes)
 """
 import os
-import sys
 from os.path import dirname, join
 
 import numpy as np
@@ -29,10 +28,8 @@ import pandas as pd
 import pytest
 from sklearn.metrics import f1_score
 
-sys.path.insert(0, dirname(dirname(os.path.abspath(__file__))))  # ZeroER/
-
 from module import ZeroerModel, get_y_init_given_threshold
-from utils import BENCH_DIR
+from data import BENCH_DIR
 from zeroer_features import build_zeroer_features
 
 FIXTURES = join(dirname(os.path.abspath(__file__)), "fixtures")

@@ -322,14 +322,18 @@ def blocking_summary(df: pd.DataFrame, pc_target: float = PC_TARGET) -> pd.DataF
         g = g.sort_values("top_k")
         pc, pq = g.PC.to_numpy(), g.PQ.to_numpy()
         n_queried = int(g.n_right.iloc[0] if side == "right" else g.n_left.iloc[0])
+        n_gold = int(g.n_gold.iloc[0])
         ap = _average_precision(pc, pq)
         hit = g[g.PC >= pc_target]
         row = dict(
             dataset=dataset, model=model, queried_side=side,
             AP=round(ap, 4),
-            # best possible AP is n_gold/n_queried (everything found at k=1),
-            # which differs per dataset — normalise to compare across them
-            nAP=round(ap * n_queried / int(g.n_gold.iloc[0]), 4),
+            # AP is capped by min(1, n_gold/n_queried): k=1 retrieves only
+            # n_queried pairs, and PQ never exceeds 1 — so when a dataset has
+            # more matches than queried entities the ceiling is 1, not the
+            # ratio. That ceiling differs per dataset and per queried side, so
+            # rescale to [0, 1] before averaging across datasets.
+            nAP=round(ap / min(1.0, n_gold / n_queried), 4),
             PC_max=round(float(pc[-1]), 4),
         )
         for k in (1, 5, 10):
