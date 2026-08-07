@@ -20,3 +20,4 @@ data/ccer/D2/gt_kaggle.csv
 .embs/
 ZeroER/outputs/tsne_notebook/*.parquet
 ZeroER/datasets/embeddings/
+ZeroER/outputs/blocking_space/*.parquet
