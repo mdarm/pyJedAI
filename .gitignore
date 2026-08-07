@@ -21,3 +21,4 @@ data/ccer/D2/gt_kaggle.csv
 ZeroER/outputs/tsne_notebook/*.parquet
 ZeroER/datasets/embeddings/
 ZeroER/outputs/blocking_space/*.parquet
+ZeroER/datasets/musicbrainz-200*
