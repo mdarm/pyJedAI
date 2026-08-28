@@ -17,8 +17,11 @@ data/ccer/D2/gt_kaggle.csv
 *.pyc
 
 # michail dev
+.cortex/
+ZeroER/NEXT-STEPS-matching.md
 .embs/
 ZeroER/outputs/tsne_notebook/*.parquet
 ZeroER/datasets/embeddings/
+ZeroER/datasets/embeddings.zip
 ZeroER/outputs/blocking_space/*.parquet
 ZeroER/datasets/musicbrainz-200*
