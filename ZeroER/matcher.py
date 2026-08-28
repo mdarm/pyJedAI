@@ -36,6 +36,13 @@ class ZeroERMatcher(PYJEDAIFeature):
     builds the exact ZeroER/Magellan similarity-feature matrix
     (``zeroer_features.build_zeroer_features``), and runs the ``ZeroerModel``
     from ``module.py``. Predicted matches (P_M >= 0.5) become weighted edges.
+
+    ``extra_features`` is an optional ``pairs -> DataFrame`` whose columns are
+    appended to that matrix — Arm B's per-attribute embedding similarities
+    (``embedding_features.embedding_feature_builder``). It applies to
+    ``predict``, which builds the matrix itself; callers that build their own and
+    go straight to ``match_pairs`` (the ``BlockFeatureCache`` path) have already
+    appended whatever they wanted.
     """
 
     _method_name = "ZeroER Unsupervised Matching"
@@ -45,11 +52,13 @@ class ZeroERMatcher(PYJEDAIFeature):
     )
     _method_short_name = "ZeroER"
 
-    def __init__(self, attributes=None, c_bay: float = 0.1, max_iter: int = 40):
+    def __init__(self, attributes=None, c_bay: float = 0.1, max_iter: int = 40,
+                 extra_features=None):
         super().__init__()
         self.attributes = attributes
         self.c_bay = c_bay
         self.max_iter = max_iter
+        self.extra_features = extra_features
         self.feature_matrix: pd.DataFrame = None
         self.pairs: Graph = None
         self.execution_time = 0.0
@@ -85,6 +94,15 @@ class ZeroERMatcher(PYJEDAIFeature):
         feature_matrix = build_zeroer_features(
             candidate_pairs, data.entities, attrs,
             dataset_limit=None if data.is_dirty_er else data.dataset_limit)
+        if self.extra_features is not None:
+            extra = self.extra_features(candidate_pairs)
+            if len(extra) != len(candidate_pairs):
+                raise ValueError(
+                    f"extra_features returned {len(extra)} rows for "
+                    f"{len(candidate_pairs)} pairs — must be row-aligned")
+            feature_matrix = pd.concat(
+                [feature_matrix.reset_index(drop=True),
+                 extra.reset_index(drop=True)], axis=1)
         self.features_time = time.time() - feat_t0
 
         self.match_pairs(candidate_pairs, feature_matrix)

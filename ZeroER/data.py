@@ -21,10 +21,21 @@ from pyjedai.datamodel import Data
 BENCH_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "datasets"))
 
-# Precomputed LLM record embeddings, one .npy per side per model, row-aligned
-# with left.csv / right.csv (see datasets/embeddings/README.md):
-#   datasets/embeddings/<dataset>/<model-stem>_{left,right}.npy
+# Precomputed LLM embeddings, split by kind so the two families never share a
+# directory (see datasets/embeddings/README.md):
+#   datasets/embeddings/record/<dataset>/<model-stem>_{left,right}.npy
+#       one vector per record, the serialised whole row — what the blocker uses.
+#   datasets/embeddings/attribute/<dataset>/<model-stem>_<attr>_{left,right}.npy
+#       one vector per record per attribute, DeepER-style, plus a
+#       model-independent presence.npz marking absent values (stored as exact
+#       zero rows) — what the matcher's embedding features use.
+# Both are row-aligned with left.csv / right.csv. Keeping them apart matters:
+# ``embedding_models`` derives model names by stripping ``_left.npy``, so a
+# per-attribute file in the record directory would register as a model named
+# ``<model>_<attr>``.
 EMB_DIR = os.path.join(BENCH_DIR, "embeddings")
+RECORD_DIR = os.path.join(EMB_DIR, "record")
+ATTR_DIR = os.path.join(EMB_DIR, "attribute")
 
 # Fraction of each benchmark kept for the Optuna *tuning* partition (see
 # ``load_data(partition=True)``). The study tunes on this slice only; the best
@@ -50,7 +61,7 @@ DATASETS = {
 }
 
 
-def embedding_models(name: str, base: str = EMB_DIR) -> list:
+def embedding_models(name: str, base: str = RECORD_DIR) -> list:
     """Sorted model stems with precomputed embeddings for a dataset.
 
     A stem is the on-disk filename minus the ``_left.npy`` suffix (it starts
@@ -65,7 +76,7 @@ def embedding_models(name: str, base: str = EMB_DIR) -> list:
 
 
 def load_embeddings(name: str, model: str, data,
-                    base: str = EMB_DIR) -> Tuple[np.ndarray, np.ndarray]:
+                    base: str = RECORD_DIR) -> Tuple[np.ndarray, np.ndarray]:
     """Record vectors for ``data``'s two tables, as float32 (faiss-ready).
 
     The .npy files are row-aligned with the *full* left.csv / right.csv;

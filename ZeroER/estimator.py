@@ -18,6 +18,7 @@ from typing import List, Optional, Tuple
 
 import faiss
 import numpy as np
+import pandas as pd
 from networkx import Graph
 
 from pyjedai.block_building import StandardBlocking
@@ -95,14 +96,23 @@ class BlockFeatureCache:
 
     Pass an instance as ``ZeroEREstimator(blocker='precomputed', cache=...)``
     to run the normal end-to-end pipeline off the cache.
+
+    ``extra_features`` appends matcher features that ``build_zeroer_features``
+    does not produce — Arm B's embedding similarities
+    (``embedding_features.embedding_feature_builder``). It is called once per
+    build, with the ``k_max`` pair array, and must return a frame of that many
+    rows. Only pair-local features are admissible: the ``top_k`` slice above is
+    exact precisely because no feature depends on the other pairs in the set.
     """
 
-    def __init__(self, dataset, data, attributes, k_max, n_jobs=-1):
+    def __init__(self, dataset, data, attributes, k_max, n_jobs=-1,
+                 extra_features=None):
         self.dataset = dataset
         self.data = data
         self.attributes = attributes
         self.k_max = k_max
         self.n_jobs = n_jobs
+        self.extra_features = extra_features
         self.limit = data.dataset_limit
         self._store = {}          # (model, distance) -> (nbrs, pairs, features)
         self.build_seconds = {}   # same key -> one-time blocking+feature cost
@@ -120,6 +130,15 @@ class BlockFeatureCache:
                 pairs, self.data.entities, self.attributes,
                 dataset_limit=self.limit, drop_zero_variance=False,
                 n_jobs=self.n_jobs)
+            if self.extra_features is not None:
+                extra = self.extra_features(pairs)
+                if len(extra) != len(pairs):
+                    raise ValueError(
+                        f"extra_features returned {len(extra)} rows for "
+                        f"{len(pairs)} pairs — must be row-aligned")
+                features = pd.concat(
+                    [features.reset_index(drop=True),
+                     extra.reset_index(drop=True)], axis=1)
             self._store[key] = (nbrs, pairs, features)
             self.build_seconds[key] = round(time.time() - t0, 3)
         return self._store[key]
@@ -173,6 +192,14 @@ class ZeroEREstimator:
         ``WeightedEdgePruning`` meta-blocking weight scheme.
     attributes:
         Columns the matcher compares; ``None`` -> shared-attribute auto-detect.
+    extra_features:
+        Optional ``pairs -> DataFrame`` appended to the ZeroER string-similarity
+        matrix — Arm B's per-attribute embedding similarities, built by
+        ``embedding_features.embedding_feature_builder``. Injected rather than
+        loaded here, like ``vectors``, so the estimator stays ignorant of the
+        on-disk embedding layout. On the ``cache`` path the cache owns feature
+        generation, so pass it to the ``BlockFeatureCache`` instead; supplying
+        both is an error rather than a silent no-op.
     c_bay, max_iter:
         ZeroER EM knobs, forwarded to ``ZeroerModel`` via ``ZeroERMatcher``.
     """
@@ -191,6 +218,7 @@ class ZeroEREstimator:
         max_iter: int = 40,
         vectors: Optional[Tuple[np.ndarray, np.ndarray]] = None,
         cache: Optional[BlockFeatureCache] = None,
+        extra_features=None,
     ) -> None:
         if blocker not in ("embeddings", "standard", "precomputed"):
             raise ValueError(
@@ -198,9 +226,14 @@ class ZeroEREstimator:
         if blocker == "precomputed" and vectors is None and cache is None:
             raise ValueError(
                 "blocker='precomputed' needs vectors=(left, right) or cache=")
+        if cache is not None and extra_features is not None:
+            raise ValueError(
+                "pass extra_features to the BlockFeatureCache, not the estimator "
+                "— the cache builds and slices the feature matrix on that path")
         self.blocker = blocker
         self.vectors = vectors
         self.cache = cache
+        self.extra_features = extra_features
         self.vectorizer = vectorizer
         self.top_k = top_k
         self.similarity_distance = similarity_distance
@@ -274,7 +307,8 @@ class ZeroEREstimator:
         """
         blocks = self.build_blocks(data)
         self.matcher = ZeroERMatcher(
-            attributes=self.attributes, c_bay=self.c_bay, max_iter=self.max_iter)
+            attributes=self.attributes, c_bay=self.c_bay, max_iter=self.max_iter,
+            extra_features=self.extra_features)
         if self._cached_features is not None:
             # features already built by the cache — go straight to the EM
             self.matcher.data = data      # predict() would have set this
