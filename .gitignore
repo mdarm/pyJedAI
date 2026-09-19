@@ -25,3 +25,4 @@ ZeroER/datasets/embeddings/
 ZeroER/datasets/embeddings.zip
 ZeroER/outputs/blocking_space/*.parquet
 ZeroER/datasets/musicbrainz-200*
+ZeroER/datasets/magellan-features/

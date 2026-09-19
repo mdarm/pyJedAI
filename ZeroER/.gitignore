@@ -1,0 +1,6 @@
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+
+# Intermediate: ladder candidate pairs, regenerable from optuna.db + embeddings
+# (`reference_features.py pairs`). The features they produce are the artifact.
+/outputs/ladder_pairs/

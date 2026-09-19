@@ -13,9 +13,18 @@ with transitivity = 1.00 and dblp_acm = 0.96. abt_buy scores 0.16 against the
 paper's 0.52 because the repo ships a much looser blocking function than the
 paper's LSH blocker — the 0.16 is still the exact upstream-code result.
 
-Feature generation is pure-Python string similarity over every candidate
-pair, so the large candidate sets take a while: only fodors_zagats runs by
-default; set RUN_SLOW=1 to include the rest.
+Feature generation is pure-Python string similarity over every candidate pair and
+these candsets are large (``fodors_zagats`` 2,915, ``dblp_acm`` 46,456, ``abt_buy``
+164,072), so only fodors_zagats runs by default; set RUN_SLOW=1 to include the
+rest. Builds are parallelised (``n_jobs=-1``); the features are pair-local, so
+that changes the runtime and not a single value.
+
+**This is an EM test, not a feature test.** Feature parity against genuine
+``py_entitymatching`` is settled far more cheaply by
+``tests/test_feature_parity.py``, which reads the stored reference matrices in
+``datasets/magellan-features/`` instead of recomputing anything. What only this
+file covers is the end-to-end number — features *plus* the EM *plus* thresholding
+— reproducing upstream's own F1 on upstream's own candidate sets.
 
 Run:  pytest tests/ -v            (fodors_zagats only, ~1 min)
       RUN_SLOW=1 pytest tests/ -v (all datasets, tens of minutes)
@@ -92,7 +101,7 @@ def _run_em(features, y_true, run_trans=False, LR_dup_free=False, id_df=None):
 def test_replicates_original_zeroer(dataset):
     pairs, entities, attributes, limit, y_true = _load_case(dataset)
     features = build_zeroer_features(pairs, entities, attributes,
-                                     dataset_limit=limit)
+                                     dataset_limit=limit, n_jobs=-1)
     f1 = _run_em(features, y_true)
     assert round(f1, 2) == CASES[dataset]["expected_f1"]
 
@@ -101,7 +110,7 @@ def test_fodors_zagats_transitivity_matches_paper():
     """Full ZeroER (transitivity, dup-free tables) hits the paper's 1.00."""
     pairs, entities, attributes, limit, y_true = _load_case("fodors_zagats")
     features = build_zeroer_features(pairs, entities, attributes,
-                                     dataset_limit=limit)
+                                     dataset_limit=limit, n_jobs=-1)
     id_df = pd.DataFrame(pairs, columns=["ltable_id", "rtable_id"])
     f1 = _run_em(features, y_true, run_trans=True, LR_dup_free=True,
                  id_df=id_df)
