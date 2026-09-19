@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
 import pandas as pd
 from networkx import Graph
 
@@ -43,6 +44,14 @@ class ZeroERMatcher(PYJEDAIFeature):
     ``predict``, which builds the matrix itself; callers that build their own and
     go straight to ``match_pairs`` (the ``BlockFeatureCache`` path) have already
     appended whatever they wanted.
+
+    The match graph keeps only the edges above the 0.5 threshold, so it is lossy:
+    the EM's posterior for a pair it rejected is not recoverable from it. The full
+    posterior is therefore retained alongside, as ``posteriors`` (row-aligned with
+    ``candidate_pairs``) and via ``posterior_frame()``. Calibration needs the
+    negatives as much as the positives — a reliability curve fitted on the
+    ``P_M >= 0.5`` survivors alone is fitted on a truncated sample and its
+    intercept/slope mean nothing.
     """
 
     _method_name = "ZeroER Unsupervised Matching"
@@ -61,6 +70,10 @@ class ZeroERMatcher(PYJEDAIFeature):
         self.extra_features = extra_features
         self.feature_matrix: pd.DataFrame = None
         self.pairs: Graph = None
+        # row-aligned pair list and the EM's full posterior over it — the graph
+        # above drops everything below 0.5, these do not
+        self.candidate_pairs: list | None = None
+        self.posteriors: np.ndarray | None = None
         self.execution_time = 0.0
         self.features_time = 0.0
         self.em_time = 0.0
@@ -134,11 +147,40 @@ class ZeroERMatcher(PYJEDAIFeature):
         )
         self.em_time = time.time() - em_t0
 
+        candidate_pairs = list(candidate_pairs)
+        P_M = np.asarray(P_M, dtype=float).ravel()
+        # zip() below would silently truncate to the shorter of the two, hiding a
+        # misalignment as a plausible-looking edge set — the same failure mode the
+        # extra_features row-count guard exists for.
+        if len(P_M) != len(candidate_pairs):
+            raise RuntimeError(
+                f"EM returned {len(P_M)} posteriors for {len(candidate_pairs)} "
+                "candidate pairs — feature matrix and pair list are misaligned")
+        self.candidate_pairs = candidate_pairs
+        self.posteriors = P_M
+
         self.pairs = Graph()
         for (id1, id2), p in zip(candidate_pairs, P_M):
             if p >= 0.5:
                 self.pairs.add_edge(int(id1), int(id2), weight=float(p))
         return self.pairs
+
+    def posterior_frame(self) -> pd.DataFrame:
+        """Every candidate pair with its EM posterior — the input calibration
+        (intercept/slope, reliability curve, Net Benefit) needs.
+
+        ``id1`` / ``id2`` are pyJedAI *internal* ids, the same space ``evaluate``
+        maps the gold standard into via ``data._ids_mapping_1/2``; join through
+        that mapping to attach labels. No labels are attached here — screening or
+        scoring on gold is the caller's decision, not the matcher's.
+        """
+        if self.posteriors is None:
+            raise RuntimeError("no posteriors yet — run predict() or match_pairs()")
+        return pd.DataFrame({
+            "id1": [int(a) for a, _ in self.candidate_pairs],
+            "id2": [int(b) for _, b in self.candidate_pairs],
+            "p_match": self.posteriors,
+        })
 
     def evaluate(self,
                  prediction,

@@ -317,3 +317,15 @@ class ZeroEREstimator:
         else:
             self.pairs = self.matcher.predict(blocks, data, tqdm_disable=True)
         return self.pairs
+
+    def posterior_frame(self) -> pd.DataFrame:
+        """Every candidate pair with its EM posterior, after ``fit_predict``.
+
+        Delegates to ``ZeroERMatcher.posterior_frame``. Exposed here because the
+        estimator is the entry point a sweep or a ladder run holds, and the match
+        graph it returns has already dropped every pair below 0.5 — which is the
+        half calibration cannot do without.
+        """
+        if self.matcher is None:
+            raise RuntimeError("no posteriors yet — run fit_predict() first")
+        return self.matcher.posterior_frame()
