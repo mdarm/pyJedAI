@@ -200,8 +200,10 @@ class ZeroEREstimator:
         on-disk embedding layout. On the ``cache`` path the cache owns feature
         generation, so pass it to the ``BlockFeatureCache`` instead; supplying
         both is an error rather than a silent no-op.
-    c_bay, max_iter:
+    c_bay, max_iter, init_threshold, tol, transitivity:
         ZeroER EM knobs, forwarded to ``ZeroerModel`` via ``ZeroERMatcher``.
+        Defaults are the released code's; the paper's stated configuration is
+        ``c_bay=0.01, init_threshold=0.5, tol=1e-5, max_iter=200``.
     """
 
     def __init__(
@@ -219,6 +221,9 @@ class ZeroEREstimator:
         vectors: Optional[Tuple[np.ndarray, np.ndarray]] = None,
         cache: Optional[BlockFeatureCache] = None,
         extra_features=None,
+        init_threshold: float = 0.8,
+        tol: Optional[float] = None,
+        transitivity: bool = False,
     ) -> None:
         if blocker not in ("embeddings", "standard", "precomputed"):
             raise ValueError(
@@ -243,6 +248,9 @@ class ZeroEREstimator:
         self.attributes = attributes
         self.c_bay = c_bay
         self.max_iter = max_iter
+        self.init_threshold = init_threshold
+        self.tol = tol
+        self.transitivity = transitivity
         # populated by build_blocks / fit_predict
         self.blocking_seconds: float = 0.0
         self.candset_size: int = 0
@@ -308,7 +316,9 @@ class ZeroEREstimator:
         blocks = self.build_blocks(data)
         self.matcher = ZeroERMatcher(
             attributes=self.attributes, c_bay=self.c_bay, max_iter=self.max_iter,
-            extra_features=self.extra_features)
+            extra_features=self.extra_features,
+            init_threshold=self.init_threshold, tol=self.tol,
+            transitivity=self.transitivity)
         if self._cached_features is not None:
             # features already built by the cache — go straight to the EM
             self.matcher.data = data      # predict() would have set this

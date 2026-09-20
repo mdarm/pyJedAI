@@ -62,12 +62,23 @@ class ZeroERMatcher(PYJEDAIFeature):
     _method_short_name = "ZeroER"
 
     def __init__(self, attributes=None, c_bay: float = 0.1, max_iter: int = 40,
-                 extra_features=None):
+                 extra_features=None, init_threshold: float = 0.8, tol=None,
+                 transitivity: bool = False):
         super().__init__()
         self.attributes = attributes
         self.c_bay = c_bay
         self.max_iter = max_iter
         self.extra_features = extra_features
+        # The defaults above and below are the released code's. The paper's
+        # stated configuration (sections 3.3, 5.1) is c_bay=0.01,
+        # init_threshold=0.5, tol=1e-5, max_iter=200.
+        self.init_threshold = init_threshold
+        self.tol = tol
+        # ZeroER's in-model transitivity for duplicate-free tables — the only
+        # variant one cross-table candidate set can serve; the paper's full
+        # Algorithm 2 also needs within-table candidate sets and features.
+        self.transitivity = transitivity
+        self.model: ZeroerModel = None
         self.feature_matrix: pd.DataFrame = None
         self.pairs: Graph = None
         # row-aligned pair list and the EM's full posterior over it — the graph
@@ -133,17 +144,23 @@ class ZeroERMatcher(PYJEDAIFeature):
         self.feature_matrix = feature_matrix
 
         em_t0 = time.time()
-        y_init = get_y_init_given_threshold(feature_matrix)
-        _, P_M = ZeroerModel.run_em(
+        y_init = get_y_init_given_threshold(feature_matrix, self.init_threshold)
+        # transitivity looks pairs up by id, so it needs the real ones
+        id_df = pd.DataFrame(list(candidate_pairs)) if self.transitivity else None
+        # P_M is the last E-step's posterior; the model's parameters are one
+        # M-step ahead of it (run_em ends on an M-step, as upstream does)
+        self.model, P_M = ZeroerModel.run_em(
             similarity_matrixs=(feature_matrix.values, None, None),
             feature_names=feature_matrix.columns.tolist(),
             y_inits=(y_init, None, None),
-            id_dfs=(None, None, None),
-            LR_dup_free=False,
+            id_dfs=(id_df, None, None),
+            LR_dup_free=self.transitivity,
             LR_identical=False,
-            run_trans=False,
+            run_trans=self.transitivity,
             c_bay=self.c_bay,
             max_iter=self.max_iter,
+            init_threshold=self.init_threshold,
+            tol=self.tol,
         )
         self.em_time = time.time() - em_t0
 
@@ -217,6 +234,9 @@ class ZeroERMatcher(PYJEDAIFeature):
             "Attributes": self.attributes if self.attributes is not None else "auto",
             "c_bay": self.c_bay,
             "max_iter": self.max_iter,
+            "init_threshold": self.init_threshold,
+            "tol": self.tol,
+            "transitivity": self.transitivity,
         }
 
     def stats(self) -> None:

@@ -142,9 +142,10 @@ class ZeroerModel:
             return norm.logpdf(s, loc=self.mu, scale=self.std)
 
     def __init__(self, similarity_matrix, feature_names, y, id_df, c_bay,
-                 pi_M=None, hard=False):
+                 pi_M=None, hard=False, init_threshold=0.8):
         self.c_bay = c_bay
-        self.y = get_y_init_given_threshold(pd.DataFrame(similarity_matrix))
+        self.y = get_y_init_given_threshold(pd.DataFrame(similarity_matrix),
+                                            init_threshold)
         self.X = np.array(similarity_matrix)
         self.id_tuple_to_index = {}
         if id_df is not None:
@@ -252,6 +253,13 @@ class ZeroerModel:
     def free_energy(self):
         return self.P_M * (np.log(self.pi_M + DEL) - np.log(self.P_M + DEL) + self.Q_M) \
             + self.P_U * (np.log(1 - self.pi_M + DEL) - np.log(self.P_U + DEL) + self.Q_U)
+
+    def expected_log_likelihood(self):
+        """Equation (4) of the paper, summed over pairs — the statistic its
+        stopping rule watches. Not upstream code: upstream stops on
+        ``free_energy`` instead (see ``run_em``'s ``tol``)."""
+        return np.sum(self.P_M * (np.log(self.pi_M + DEL) + self.Q_M)
+                      + self.P_U * (np.log(1 - self.pi_M + DEL) + self.Q_U))
 
     def predict_PM(self, X_test):
         reg_cov = 1e-8 * np.identity(len(self.X[0]))
@@ -441,6 +449,7 @@ class ZeroerModel:
         kappas[kappas < 0] = 0
         kappas[kappas > 1] = 1
         kappas = np.nan_to_num(kappas, posinf=0, neginf=0)
+        self.kappas = kappas  # kept for diagnostics; upstream discards it
         self.Cov_M = np.zeros_like(Cov_M)
         self.Cov_U = np.zeros_like(Cov_U)
 
@@ -480,19 +489,38 @@ class ZeroerModel:
                y_true=None,
                pi_M=None,
                hard=False,
-               max_iter=40):
+               max_iter=40,
+               init_threshold=0.8,
+               tol=None):
+        """``init_threshold`` and ``tol`` are the two knobs upstream hard-wires.
+        Their defaults are upstream's behaviour: initial labels from the scaled
+        feature sum > 0.8, and a stop when the norm of the change in the per-pair
+        ``free_energy`` vector averages <= 0.01 over ten iterations. A ``tol``
+        switches to the paper's rule (section 3.3): stop when
+        ``expected_log_likelihood`` — Equation (4), read after the E-step, where
+        posteriors and parameters agree — moves by less than ``tol`` between two
+        consecutive iterations. The returned model carries ``n_iter`` and
+        ``converged`` (False = stopped by ``max_iter``)."""
         sims, sims_l, sims_r = similarity_matrixs
         y_init, y_init_l, y_init_r = y_inits
         id_df, id_df_l, id_df_r = id_dfs
-        model = cls(sims, feature_names, y_init, id_df, pi_M=pi_M, hard=hard, c_bay=c_bay)
+        model = cls(sims, feature_names, y_init, id_df, pi_M=pi_M, hard=hard, c_bay=c_bay,
+                    init_threshold=init_threshold)
         if run_trans and LR_dup_free is False and LR_identical is False:
-            model_l = cls(sims_l, feature_names, y_init_l, id_df_l, c_bay=c_bay)
-            model_r = cls(sims_r, feature_names, y_init_r, id_df_r, c_bay=c_bay)
+            model_l = cls(sims_l, feature_names, y_init_l, id_df_l, c_bay=c_bay,
+                          init_threshold=init_threshold)
+            model_r = cls(sims_r, feature_names, y_init_r, id_df_r, c_bay=c_bay,
+                          init_threshold=init_threshold)
 
-        convergence = ConvergenceMeter(10, 0.01, diff_fn=lambda a, b: np.linalg.norm(a - b))
+        if tol is None:
+            convergence = ConvergenceMeter(10, 0.01, diff_fn=lambda a, b: np.linalg.norm(a - b))
+        else:
+            convergence = ConvergenceMeter(1, tol)
+        model.converged = False
 
         with tqdm(range(max_iter)) as pbar:
             for i in pbar:
+                model.n_iter = i + 1
                 model.e_step()
                 if run_trans:
                     if LR_dup_free is False and LR_identical is False:
@@ -510,13 +538,16 @@ class ZeroerModel:
                             model.P_M = model.enforce_transitivity(
                                 model.P_M, model.ids, model.id_tuple_to_index, None, None,
                                 LR_dup_free, LR_identical)
+                if tol is not None:
+                    expected_ll = model.expected_log_likelihood()
                 model.m_step()
                 if run_trans and LR_dup_free is False and LR_identical is False:
                     model_r.m_step()
                     model_l.m_step()
 
-                convergence.offer(model.free_energy())
+                convergence.offer(model.free_energy() if tol is None else expected_ll)
                 if convergence.is_converged:
+                    model.converged = True
                     break
                 if y_true is not None:
                     y_pred = np.round(np.clip(model.P_M + DEL, 0., 1.)).astype(int) \
