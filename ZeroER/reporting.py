@@ -20,7 +20,7 @@ import optuna
 import pandas as pd
 
 from data import DATASETS
-from tuning import OUTPUT_DIR, STORAGE, _blocking_stats, front_trials
+from tuning import MATCHING_STORAGE, OUTPUT_DIR, STORAGE, _blocking_stats, front_trials
 
 
 def _round(x, n):
@@ -678,3 +678,84 @@ def literature_report(storage=STORAGE, experiment=BLOCKING_EXPERIMENT,
     return {"recall_threshold": ub, "cost_at_recall": cost_at_recall(df, target),
             "nlsh": nlsh_comparison(df),
             "leaderboard": efficiency_leaderboard(df, target)}
+
+
+# --------------------------------------------------------------------------
+# Matching — the reference ladder (``ladder_baseline.py``). Lives in
+# MATCHING_STORAGE, not STORAGE: the blocking sweep is closed, and every matching
+# experiment runs on its fixed candidate sets.
+# --------------------------------------------------------------------------
+
+LADDER_EXPERIMENT = "ladder"
+
+
+def _pair_f1(tp, predicted, n_gold):
+    """Pair F1 against the full gold standard, from counts: 2tp / (|pred| + |gold|)."""
+    return 2 * tp / (predicted + n_gold)
+
+
+def ladder_frame(storage=MATCHING_STORAGE, experiment=LADDER_EXPERIMENT,
+                 datasets=None) -> pd.DataFrame:
+    """One tidy row per ladder fit, every metric recomputed from the stored counts.
+
+    Beside ZeroER's own P / R / F1 each row carries what it has to be read
+    between: ``accept_all_f1`` (every candidate declared a match), ``floor_f1``
+    (the blocker's cosine + greedy one-to-one, no threshold), ``oracle_f1`` (a
+    perfect matcher on these candidates) and ``floor_oracle_f1`` (the best any
+    one-to-one mapping could do — below ``oracle_f1`` wherever the gold standard
+    is not one-to-one, which is where that floor is an ablation, not a reference).
+    Fits that raised are kept, with NaN scores and their ``error``.
+    """
+    rows = []
+    for dataset in (datasets or DATASETS):
+        try:
+            study = optuna.load_study(study_name=f"{dataset}_{experiment}",
+                                      storage=storage)
+        except KeyError:
+            continue                              # dataset not run yet
+        rows += [dict(dataset=dataset, **t.params, **t.user_attrs)
+                 for t in study.trials]
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["PC"] = df.tp_blocking / df.n_gold
+    df["PQ"] = df.tp_blocking / df.candset_size
+    df["precision"] = df.tp / df.predicted
+    df["recall"] = df.tp / df.n_gold
+    df["f1"] = _pair_f1(df.tp, df.predicted, df.n_gold)
+    df["accept_all_f1"] = _pair_f1(df.tp_blocking, df.candset_size, df.n_gold)
+    df["floor_f1"] = _pair_f1(df.floor_tp, df.floor_predicted, df.n_gold)
+    df["oracle_f1"] = _pair_f1(df.tp_blocking, df.tp_blocking, df.n_gold)
+    df["floor_oracle_f1"] = _pair_f1(df.floor_oracle_tp, df.floor_oracle_tp, df.n_gold)
+    return df.sort_values(["dataset", "queried_side", "top_k", "config"],
+                          ignore_index=True)
+
+
+def plot_ladder(df: pd.DataFrame, configs=("B-paper", "B-code")) -> None:
+    """F1 along each nested-k curve, one panel per (dataset, queried side), with
+    the two no-matcher floors and the oracle; the 19 named rungs are ringed."""
+    curves = list(df.groupby(["dataset", "queried_side"], sort=False).groups)
+    fig, axes = plt.subplots(2, -(-len(curves) // 2), squeeze=False,
+                             figsize=(3.6 * -(-len(curves) // 2), 6.4))
+    for ax, (dataset, side) in zip(axes.ravel(), curves):
+        d = df[(df.dataset == dataset) & (df.queried_side == side)]
+        cell = d.drop_duplicates("top_k").sort_values("top_k")
+        ax.plot(cell.top_k, cell.oracle_f1, c="k", lw=0.8, ls=":", label="oracle")
+        ax.plot(cell.top_k, cell.accept_all_f1, c="gray", lw=1, label="accept-all")
+        ax.plot(cell.top_k, cell.floor_f1, c="gray", lw=1, ls="--", label="cosine 1:1")
+        for config, colour in zip(configs, ("tab:red", "tab:blue")):
+            g = d[d.config == config].sort_values("top_k")
+            ax.plot(g.top_k, g.f1, c=colour, marker="o", ms=3, lw=1.4, label=config)
+            ax.scatter(g.top_k[g.rung], g.f1[g.rung], s=60, facecolor="none",
+                       edgecolor=colour, zorder=3)
+        ax.set(title=f"{dataset} — query {side}", xlabel="k", ylabel="F1 (full gold)",
+               ylim=(0, 1.02))
+        ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        ax.grid(alpha=0.3)
+    for ax in axes.ravel()[len(curves):]:
+        ax.axis("off")
+    axes[0][0].legend(fontsize=7, loc="center right")
+    fig.suptitle("Reference ladder — string-only ZeroER between its floors and ceiling",
+                 fontsize=13)
+    fig.tight_layout()
+    plt.show()

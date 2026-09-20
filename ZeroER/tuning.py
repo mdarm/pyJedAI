@@ -23,6 +23,9 @@ from data import DATASETS
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outputs")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 STORAGE = f"sqlite:///{os.path.join(OUTPUT_DIR, 'optuna.db')}"
+# The matching-stage experiments get their own file: optuna.db is the blocking
+# sweep, which is closed, and everything downstream runs on its fixed ladder.
+MATCHING_STORAGE = f"sqlite:///{os.path.join(OUTPUT_DIR, 'optuna_matching.db')}"
 
 
 def trial_budget(

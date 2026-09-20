@@ -4,3 +4,7 @@
 # Intermediate: ladder candidate pairs, regenerable from optuna.db + embeddings
 # (`reference_features.py pairs`). The features they produce are the artifact.
 /outputs/ladder_pairs/
+
+# Intermediate: per-pair posteriors of every ladder fit, regenerable with
+# `ladder_baseline.py`. The scores are in outputs/optuna_matching.db.
+/outputs/ladder_posteriors/
