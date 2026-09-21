@@ -24,7 +24,7 @@ from networkx import Graph
 from pyjedai.datamodel import Data, PYJEDAIFeature
 from pyjedai.evaluation import Evaluation
 
-from module import ZeroerModel, get_y_init_given_threshold
+from module import ZeroerModel, initial_labels
 from zeroer_features import build_zeroer_features
 
 __all__ = ["ZeroERMatcher"]
@@ -63,7 +63,10 @@ class ZeroERMatcher(PYJEDAIFeature):
 
     def __init__(self, attributes=None, c_bay: float = 0.1, max_iter: int = 40,
                  extra_features=None, init_threshold: float = 0.8, tol=None,
-                 transitivity: bool = False):
+                 transitivity: bool = False, pi_M=None, hard: bool = False,
+                 init_statistic: str = "sum", missing: str = "zero"):
+        if missing not in ("zero", "ignore"):
+            raise ValueError("missing must be 'zero' or 'ignore'")
         super().__init__()
         self.attributes = attributes
         self.c_bay = c_bay
@@ -78,6 +81,16 @@ class ZeroERMatcher(PYJEDAIFeature):
         # variant one cross-table candidate set can serve; the paper's full
         # Algorithm 2 also needs within-table candidate sets and features.
         self.transitivity = transitivity
+        # pi_M: the initial match prior (None = the share of initial labels);
+        # hard: hard-assignment EM. Both are upstream run_em arguments.
+        self.pi_M = pi_M
+        self.hard = hard
+        # Not upstream — see module.initial_labels and ZeroerModel.__init__.
+        # init_statistic 'present_mean' seeds EM from the blocks a pair has;
+        # missing='ignore' leaves absent attributes out of the likelihood instead
+        # of reading them as zero similarity. Both need match_pairs(present=).
+        self.init_statistic = init_statistic
+        self.missing = missing
         self.model: ZeroerModel = None
         self.feature_matrix: pd.DataFrame = None
         self.pairs: Graph = None
@@ -94,6 +107,9 @@ class ZeroERMatcher(PYJEDAIFeature):
             raise ValueError("Empty blocks structure")
         self.data = data
 
+        if self.missing != "zero":
+            raise ValueError("missing='ignore' needs a presence mask: build the "
+                             "matrix yourself and call match_pairs(present=...)")
         if self.attributes is None:
             attrs_2 = data.attributes_2 if not data.is_dirty_er else data.attributes_1
             attrs = [a for a in data.attributes_1 if a in attrs_2]
@@ -133,25 +149,35 @@ class ZeroERMatcher(PYJEDAIFeature):
         self.execution_time = time.time() - start
         return self.pairs
 
-    def match_pairs(self, candidate_pairs, feature_matrix: pd.DataFrame) -> Graph:
+    def match_pairs(self, candidate_pairs, feature_matrix: pd.DataFrame,
+                    present=None, trace: bool = False) -> Graph:
         """EM + thresholding on an externally built feature matrix (rows
         aligned with ``candidate_pairs``). ``predict`` lands here after
         building the matrix itself; sweeps that cache features across trials
         (``estimator.BlockFeatureCache``) reach it through
-        ``ZeroEREstimator.fit_predict``."""
+        ``ZeroEREstimator.fit_predict``.
+
+        ``present``: {attribute block: boolean array, True where both records
+        have the value}, row-aligned — what ``init_statistic='present_mean'`` and
+        ``missing='ignore'`` read. ``trace`` keeps the per-iteration state in
+        ``self.model.history``."""
+        if self.missing == "ignore" and present is None:
+            raise ValueError("missing='ignore' needs present=")
         if feature_matrix.shape[1] == 0:
             raise RuntimeError("Feature matrix is empty after dropping constant columns.")
         self.feature_matrix = feature_matrix
 
         em_t0 = time.time()
-        y_init = get_y_init_given_threshold(feature_matrix, self.init_threshold)
+        names = feature_matrix.columns.tolist()
+        y_init = initial_labels(feature_matrix.values, names, self.init_threshold,
+                                self.init_statistic, present)
         # transitivity looks pairs up by id, so it needs the real ones
         id_df = pd.DataFrame(list(candidate_pairs)) if self.transitivity else None
         # P_M is the last E-step's posterior; the model's parameters are one
         # M-step ahead of it (run_em ends on an M-step, as upstream does)
         self.model, P_M = ZeroerModel.run_em(
             similarity_matrixs=(feature_matrix.values, None, None),
-            feature_names=feature_matrix.columns.tolist(),
+            feature_names=names,
             y_inits=(y_init, None, None),
             id_dfs=(id_df, None, None),
             LR_dup_free=self.transitivity,
@@ -161,6 +187,11 @@ class ZeroERMatcher(PYJEDAIFeature):
             max_iter=self.max_iter,
             init_threshold=self.init_threshold,
             tol=self.tol,
+            pi_M=self.pi_M,
+            hard=self.hard,
+            init_statistic=self.init_statistic,
+            present=present if self.missing == "ignore" else None,
+            trace=trace,
         )
         self.em_time = time.time() - em_t0
 
@@ -237,6 +268,10 @@ class ZeroERMatcher(PYJEDAIFeature):
             "init_threshold": self.init_threshold,
             "tol": self.tol,
             "transitivity": self.transitivity,
+            "pi_M": self.pi_M,
+            "hard": self.hard,
+            "init_statistic": self.init_statistic,
+            "missing": self.missing,
         }
 
     def stats(self) -> None:

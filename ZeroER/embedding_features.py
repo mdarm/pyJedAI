@@ -31,7 +31,7 @@ Three conventions this module has to keep, all load-bearing:
   ``k_max`` and serves smaller ``top_k`` as a row slice, which is exact only for
   features that depend on nothing but their own pair. A blocking-rank or
   margin-to-next-neighbour feature would break that invariant and must not be
-  added to this module.
+  added to the pair-local builders. ``fuse`` runs later on each fitted cell.
 
 **On the metric set.** For L2-normalised vectors ``‖u-v‖₂² = 2-2cos``, so a
 Euclidean-derived similarity is a strictly monotone function of the cosine and
@@ -49,9 +49,10 @@ from typing import Callable, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from data import ATTR_DIR, load_embeddings
+from config import ATTR_DIR
+from data import FAMILIES, load_embeddings
 
-__all__ = ["METRICS", "build_embedding_features", "embedding_feature_builder"]
+__all__ = ["METRICS", "FUSIONS", "build_embedding_features", "embedding_feature_builder", "fuse"]
 
 
 def _cos(u: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -146,3 +147,49 @@ def embedding_feature_builder(
     build.__doc__ = (f"{list(attributes)} x {list(metrics)} embedding features "
                      f"from {model} on {dataset}")
     return build
+
+
+FUSIONS = ("separate", "mean", "zmean", "family")
+
+
+def fuse(bank, models, attributes, present, fusion="separate", metric="cos"):
+    """The embedding feature columns of one *evaluated* cell, from its bank rows.
+
+    ``bank``: ``load_bank`` rows of exactly the pairs being fitted; ``present``:
+    {attribute: boolean array}. One column group per attribute, named into that
+    attribute's block:
+
+    * ``separate`` — one column per model; the EM sees every contrast.
+    * ``mean`` — the raw mean of the cosines: for L2-normalised vectors this *is*
+      the cosine of the concatenated embeddings.
+    * ``zmean`` — the mean of the per-model z-scored cosines.
+    * ``family`` — one ``zmean`` per encoder family present in ``models``.
+
+    z-scales are fitted here, on the fitted pairs' present rows — never once on a
+    larger cell and reused. A fused z-column is mapped back onto [0, 1] over the
+    present rows, with 0 where the attribute is absent: upstream's convention for
+    every similarity feature, so the initialisation reads it the same way.
+    """
+    if fusion not in FUSIONS:
+        raise ValueError("fusion must be one of {}".format(FUSIONS))
+    out = {}
+    for attr in attributes:
+        there = np.asarray(present[attr], dtype=bool)
+        columns = bank[["{}_emb_{}__{}".format(attr, metric, m) for m in models]]
+        if fusion == "separate":
+            out.update({c: columns[c].to_numpy() for c in columns})
+            continue
+        if fusion == "mean":
+            out["{}_emb_{}__mean".format(attr, metric)] = columns.mean(axis=1).to_numpy()
+            continue
+        z = (columns - columns[there].mean()) / columns[there].std().replace(0, 1)
+        z.columns = models
+        groups = {"zmean": models} if fusion == "zmean" else \
+            {family: [m for m in members if m in models] for family, members in FAMILIES.items()}
+        for name, members in groups.items():
+            if members:
+                score = z[members].mean(axis=1).to_numpy()
+                low, high = score[there].min(), score[there].max()
+                out["{}_emb_{}__{}".format(attr, metric, name)] = \
+                    np.where(there, (score - low) / ((high - low) or 1.0), 0.0)
+    return pd.DataFrame(out)

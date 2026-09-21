@@ -9,7 +9,7 @@ drives the pure model in ``module.py``.
 * ``BlockFeatureCache`` — blocking + feature reuse across a sweep's trials.
 * ``ZeroEREstimator`` — the public entry point. Every knob is a flat, typed
   constructor argument, so an Optuna ``suggest_*`` maps one-to-one onto it.
-  Experiment code should only ever touch this class.
+  Experiments with cached candidates use ``evaluation.py`` and the matcher directly.
 """
 from __future__ import annotations
 
@@ -200,7 +200,7 @@ class ZeroEREstimator:
         on-disk embedding layout. On the ``cache`` path the cache owns feature
         generation, so pass it to the ``BlockFeatureCache`` instead; supplying
         both is an error rather than a silent no-op.
-    c_bay, max_iter, init_threshold, tol, transitivity:
+    c_bay, max_iter, init_threshold, tol, transitivity, pi_M, hard:
         ZeroER EM knobs, forwarded to ``ZeroerModel`` via ``ZeroERMatcher``.
         Defaults are the released code's; the paper's stated configuration is
         ``c_bay=0.01, init_threshold=0.5, tol=1e-5, max_iter=200``.
@@ -224,6 +224,8 @@ class ZeroEREstimator:
         init_threshold: float = 0.8,
         tol: Optional[float] = None,
         transitivity: bool = False,
+        pi_M: Optional[float] = None,
+        hard: bool = False,
     ) -> None:
         if blocker not in ("embeddings", "standard", "precomputed"):
             raise ValueError(
@@ -251,6 +253,8 @@ class ZeroEREstimator:
         self.init_threshold = init_threshold
         self.tol = tol
         self.transitivity = transitivity
+        self.pi_M = pi_M
+        self.hard = hard
         # populated by build_blocks / fit_predict
         self.blocking_seconds: float = 0.0
         self.candset_size: int = 0
@@ -318,7 +322,7 @@ class ZeroEREstimator:
             attributes=self.attributes, c_bay=self.c_bay, max_iter=self.max_iter,
             extra_features=self.extra_features,
             init_threshold=self.init_threshold, tol=self.tol,
-            transitivity=self.transitivity)
+            transitivity=self.transitivity, pi_M=self.pi_M, hard=self.hard)
         if self._cached_features is not None:
             # features already built by the cache — go straight to the EM
             self.matcher.data = data      # predict() would have set this

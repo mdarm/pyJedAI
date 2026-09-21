@@ -64,6 +64,38 @@ def get_y_init_given_threshold(similarity_features_df, threshold=0.8):
     return y_init
 
 
+def _blocks(feature_names):
+    """{attribute block: its column indices}, grouped as ``ZeroerModel`` groups them."""
+    blocks = defaultdict(list)
+    for i_col, name in enumerate(feature_names):
+        blocks[name.split("_")[0]].append(i_col)
+    return blocks
+
+
+def initial_labels(X, feature_names, threshold=0.8, statistic="sum", present=None):
+    """The bootstrap labels that seed EM. Not upstream code, except ``"sum"``.
+
+    ``"sum"`` is upstream's ``get_y_init_given_threshold``: the scaled sum of all
+    columns. It counts columns, so an attribute with more features weighs more,
+    and an absent attribute (a zero block) pulls a pair down — on sparse data the
+    seed is a split on *presence*. ``"present_mean"`` averages within each block
+    and then across the blocks that are present for the pair (``present``:
+    {block: boolean array}; None = all present), which removes both effects.
+    """
+    if statistic == "sum":
+        return get_y_init_given_threshold(pd.DataFrame(X), threshold)
+    if statistic != "present_mean":
+        raise ValueError("init statistic must be 'sum' or 'present_mean'")
+    x_scaled = MinMaxScaler().fit_transform(np.asarray(X, dtype=float))
+    blocks = _blocks(feature_names)
+    means = np.column_stack([x_scaled[:, cols].mean(axis=1) for cols in blocks.values()])
+    there = np.ones_like(means, dtype=bool) if present is None else \
+        np.column_stack([np.asarray(present[block], dtype=bool) for block in blocks])
+    statistic = (means * there).sum(axis=1) / np.maximum(there.sum(axis=1), 1)
+    scaled = MinMaxScaler().fit_transform(statistic.reshape(-1, 1))
+    return [int(val) for val in (scaled > threshold).flatten()]
+
+
 def _get_results(true_labels, predicted_labels):
     p = precision_score(true_labels, predicted_labels)
     r = recall_score(true_labels, predicted_labels)
@@ -142,10 +174,11 @@ class ZeroerModel:
             return norm.logpdf(s, loc=self.mu, scale=self.std)
 
     def __init__(self, similarity_matrix, feature_names, y, id_df, c_bay,
-                 pi_M=None, hard=False, init_threshold=0.8):
+                 pi_M=None, hard=False, init_threshold=0.8, init_statistic="sum",
+                 present=None):
         self.c_bay = c_bay
-        self.y = get_y_init_given_threshold(pd.DataFrame(similarity_matrix),
-                                            init_threshold)
+        self.y = initial_labels(similarity_matrix, feature_names, init_threshold,
+                                init_statistic, present)
         self.X = np.array(similarity_matrix)
         self.id_tuple_to_index = {}
         if id_df is not None:
@@ -170,6 +203,19 @@ class ZeroerModel:
             self.col_index_2_group_name.append(name.split("_")[0])
             self.group_name_2_col_indices[self.col_index_2_group_name[-1]].append(i_col)
         self.group_names = list(set(self.col_index_2_group_name))
+
+        # Missing-aware fit — not upstream, and off (None) unless ``present`` =
+        # {block: boolean array} is given. An absent attribute is then left out of
+        # the likelihood and of every parameter estimate instead of being read
+        # as a block of zero similarities.
+        self.observed = None
+        if present is not None:
+            self.observed = np.zeros(self.X.shape, dtype=bool)
+            for g_name, i_cols in self.group_name_2_col_indices.items():
+                rows = np.asarray(present[g_name], dtype=bool)
+                self.observed[:, i_cols] = rows[:, None]
+                self.corr[np.ix_(i_cols, i_cols)] = np.nan_to_num(
+                    pd.DataFrame(self.X[rows][:, i_cols]).corr().values)
 
         if pi_M is None:
             pi_M = Counter(list(y))[1] / float(len(y))
@@ -203,6 +249,10 @@ class ZeroerModel:
         for label in self._labels:
             class_wise_scores[label] = \
                 self.X[np.where(self.y == label), i_cols]
+            if self.observed is not None:
+                rows = (np.asarray(self.y) == label) & self.observed[:, i_cols]
+                if rows.sum() > 1:
+                    class_wise_scores[label] = self.X[rows, i_cols]
 
         return class_wise_scores
 
@@ -234,8 +284,12 @@ class ZeroerModel:
         min_eig = np.min(np.real(np.linalg.eigvals(self.Cov_U)))
         if min_eig < 0:
             self.Cov_U -= 10 * min_eig * np.eye(*self.Cov_U.shape)
-        log_prods_dup = multivariate_normal.logpdf(self.X, mean=self.Mu_M, cov=self.Cov_M, allow_singular=True)
-        log_prods_non_dup = multivariate_normal.logpdf(self.X, mean=self.Mu_U, cov=self.Cov_U, allow_singular=True)
+        if self.observed is None:
+            log_prods_dup = multivariate_normal.logpdf(self.X, mean=self.Mu_M, cov=self.Cov_M, allow_singular=True)
+            log_prods_non_dup = multivariate_normal.logpdf(self.X, mean=self.Mu_U, cov=self.Cov_U, allow_singular=True)
+        else:
+            log_prods_dup = self._observed_logpdf(self.Mu_M, self.Cov_M)
+            log_prods_non_dup = self._observed_logpdf(self.Mu_U, self.Cov_U)
 
         pi_M = self.pi_M
         pi_U = 1 - pi_M
@@ -249,6 +303,20 @@ class ZeroerModel:
         self.P_U = 1 - self.P_M
         if self._hard:
             self.P_M = np.round(np.clip(self.P_M, 0., 1.))
+
+    def _observed_logpdf(self, mu, cov):
+        """``log N(x; mu, cov)`` over each pair's *present* blocks. Σ is
+        block-diagonal, so the density factorises over blocks and marginalising
+        an absent one is exact — it drops out of the sum. A pair with no block
+        present scores 0 under both classes: its posterior is the prior."""
+        total = np.zeros(self._num_rows)
+        for i_cols in self.group_name_2_col_indices.values():
+            rows = self.observed[:, i_cols[0]]
+            if rows.any():
+                total[rows] += multivariate_normal.logpdf(
+                    self.X[rows][:, i_cols], mean=mu[i_cols],
+                    cov=cov[np.ix_(i_cols, i_cols)], allow_singular=True)
+        return total
 
     def free_energy(self):
         return self.P_M * (np.log(self.pi_M + DEL) - np.log(self.P_M + DEL) + self.Q_M) \
@@ -417,18 +485,23 @@ class ZeroerModel:
         P_M = P_M.reshape(N, 1)
         P_U = P_U.reshape(N, 1)
 
-        self.Mu_M = np.sum(P_M * X, axis=0) / (N_M + DEL)
-        self.Mu_U = np.sum(P_U * X, axis=0) / (N_U + DEL)
+        if self.observed is not None:
+            Cov_M, std_M = self._observed_moments(P_M, "Mu_M", self.Cov_M)
+            Cov_U, std_U = self._observed_moments(P_U, "Mu_U", self.Cov_U)
+            smooth_factor = abs((self.Mu_M - self.Mu_U)) ** 2
+        else:
+            self.Mu_M = np.sum(P_M * X, axis=0) / (N_M + DEL)
+            self.Mu_U = np.sum(P_U * X, axis=0) / (N_U + DEL)
 
-        smooth_factor = abs((self.Mu_M - self.Mu_U)) ** 2
+            smooth_factor = abs((self.Mu_M - self.Mu_U)) ** 2
 
-        std_M = (np.sqrt(np.sum(
-            P_M * ((X - np.tile(self.Mu_M, (N, 1))) ** 2), axis=0) / (N_M + DEL))) + 1e-100
-        std_U = (np.sqrt(np.sum(
-            P_U * ((X - np.tile(self.Mu_U, (N, 1))) ** 2), axis=0) / (N_U + DEL))) + 1e-100
+            std_M = (np.sqrt(np.sum(
+                P_M * ((X - np.tile(self.Mu_M, (N, 1))) ** 2), axis=0) / (N_M + DEL))) + 1e-100
+            std_U = (np.sqrt(np.sum(
+                P_U * ((X - np.tile(self.Mu_U, (N, 1))) ** 2), axis=0) / (N_U + DEL))) + 1e-100
 
-        Cov_M = np.dot(np.transpose(self.X - self.Mu_M), P_M * (self.X - self.Mu_M)) / (N_M + DEL)
-        Cov_U = np.dot(np.transpose(self.X - self.Mu_U), P_U * (self.X - self.Mu_U)) / (N_U + DEL)
+            Cov_M = np.dot(np.transpose(self.X - self.Mu_M), P_M * (self.X - self.Mu_M)) / (N_M + DEL)
+            Cov_U = np.dot(np.transpose(self.X - self.Mu_U), P_U * (self.X - self.Mu_U)) / (N_U + DEL)
 
         a = np.diag(Cov_M)
         b = np.diag(Cov_U)
@@ -450,6 +523,7 @@ class ZeroerModel:
         kappas[kappas > 1] = 1
         kappas = np.nan_to_num(kappas, posinf=0, neginf=0)
         self.kappas = kappas  # kept for diagnostics; upstream discards it
+        self.bay_ori = bay_ori
         self.Cov_M = np.zeros_like(Cov_M)
         self.Cov_U = np.zeros_like(Cov_U)
 
@@ -464,6 +538,19 @@ class ZeroerModel:
                     else:
                         self.Cov_M[col_1, col_2] = self.corr[col_1, col_2] * std_M[col_1] * std_M[col_2]
                         self.Cov_U[col_1, col_2] = self.corr[col_1, col_2] * std_U[col_1] * std_U[col_2]
+
+    def _observed_moments(self, P, mu_name, previous_cov):
+        """One class's means and variances with every column weighted by its own
+        observed rows (the missing-aware M-step); returns (diagonal covariance,
+        std). A column with no observed mass in the class keeps what it had."""
+        W = P * self.observed
+        mass = W.sum(axis=0)
+        seen = mass > 1e-8
+        mu = np.where(seen, (W * self.X).sum(axis=0) / (mass + DEL), getattr(self, mu_name))
+        var = np.where(seen, (W * (self.X - mu) ** 2).sum(axis=0) / (mass + DEL),
+                       np.diag(previous_cov))
+        setattr(self, mu_name, mu)
+        return np.diag(var), np.sqrt(var) + 1e-100
 
     def L(self, q, i):
         return q * (np.log(self.pi_M + DEL) + self.Q_M[i] - np.log(q + DEL)) \
@@ -491,7 +578,10 @@ class ZeroerModel:
                hard=False,
                max_iter=40,
                init_threshold=0.8,
-               tol=None):
+               tol=None,
+               init_statistic="sum",
+               present=None,
+               trace=False):
         """``init_threshold`` and ``tol`` are the two knobs upstream hard-wires.
         Their defaults are upstream's behaviour: initial labels from the scaled
         feature sum > 0.8, and a stop when the norm of the change in the per-pair
@@ -500,12 +590,19 @@ class ZeroerModel:
         ``expected_log_likelihood`` — Equation (4), read after the E-step, where
         posteriors and parameters agree — moves by less than ``tol`` between two
         consecutive iterations. The returned model carries ``n_iter`` and
-        ``converged`` (False = stopped by ``max_iter``)."""
+        ``converged`` (False = stopped by ``max_iter``).
+
+        ``init_statistic`` (see ``initial_labels``) and ``present`` (the
+        missing-aware fit, see ``__init__``) apply to the cross-table model only.
+        ``trace`` keeps, per iteration, the posteriors and the regulariser's state
+        in ``model.history`` — for diagnosis; it changes nothing."""
         sims, sims_l, sims_r = similarity_matrixs
         y_init, y_init_l, y_init_r = y_inits
         id_df, id_df_l, id_df_r = id_dfs
         model = cls(sims, feature_names, y_init, id_df, pi_M=pi_M, hard=hard, c_bay=c_bay,
-                    init_threshold=init_threshold)
+                    init_threshold=init_threshold, init_statistic=init_statistic,
+                    present=present)
+        model.history = []
         if run_trans and LR_dup_free is False and LR_identical is False:
             model_l = cls(sims_l, feature_names, y_init_l, id_df_l, c_bay=c_bay,
                           init_threshold=init_threshold)
@@ -545,6 +642,10 @@ class ZeroerModel:
                     model_r.m_step()
                     model_l.m_step()
 
+                if trace:
+                    model.history.append(dict(P_M=model.P_M.copy(), pi_M=model.pi_M,
+                                              kappas=model.kappas.copy(),
+                                              bay_ori=model.bay_ori.copy()))
                 convergence.offer(model.free_energy() if tol is None else expected_ll)
                 if convergence.is_converged:
                     model.converged = True

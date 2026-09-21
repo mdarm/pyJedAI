@@ -21,7 +21,7 @@ import pytest
 
 from matcher import ZeroERMatcher
 from module import get_y_init_given_threshold
-from reference_features import FEATURES_DIR, cell_name
+from config import FEATURES_DIR, cell_name
 
 
 def _load(k):

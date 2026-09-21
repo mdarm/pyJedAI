@@ -1,267 +1,30 @@
-"""Results views — read straight from optuna.db, so they work after a full *or*
-partial sweep and are identical in both notebooks.
-
-``export`` regenerates the CSV views; ``show_results`` is the in-notebook
-summary + Pareto-front plots.
-
-Optional:
-    show_results()                      -> all studies in the default STORAGE
-    show_results(study_name="abt_buy")  -> only abt_buy / abt_buy_full
-"""
-
+"""Database-backed results and plots shared by the experiment notebooks."""
 from __future__ import annotations
 
-import csv
-import os
+from pathlib import Path
+import sqlite3
 
 import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import pandas as pd
+from IPython.display import display
 
+from config import MATCHING_STORAGE, OUTPUT_DIR, STORAGE
 from data import DATASETS
-from tuning import MATCHING_STORAGE, OUTPUT_DIR, STORAGE, _blocking_stats, front_trials
+
+DB = Path(OUTPUT_DIR) / "optuna.db"
+MATCHING_DB = Path(OUTPUT_DIR) / "optuna_matching.db"
 
 
-def _round(x, n):
-    """round() that tolerates None (conditional params absent from a branch)."""
-    return round(x, n) if x is not None else None
+def trial_count(study_name, finished=False, db=MATCHING_DB):
+    """Count trials without creating or updating a study."""
+    condition = "AND t.state IN ('COMPLETE', 'FAIL', 'PRUNED')" if finished else ""
+    return int(sql(f"""
+        SELECT COUNT(*) AS count FROM trials t JOIN studies s USING (study_id)
+        WHERE s.study_name = ? {condition}
+    """, db=db, params=(study_name,)).iloc[0, 0])
 
-
-def _pareto_row(dataset: str, trial, phase: str = "partition") -> dict:
-    """Flatten one Pareto-optimal trial into a CSV row.
-
-    Generic over experiments: F1 is the first objective value by convention;
-    the trial's params and user attrs (candset_size, pair_completeness,
-    timings, source_trial, ...) go in as-is, so a new experiment's knobs need
-    no view changes.
-    """
-    cs, pc = _blocking_stats(trial)
-    row = dict(
-        dataset=dataset,
-        phase=phase,                       # "partition" (tuned) or "full" (retrained)
-        F1=round(trial.values[0], 4),
-        candset_size=int(cs),
-        blocking_recall=_round(pc, 4),
-    )
-    row.update({k: (_round(v, 5) if isinstance(v, float) else v)
-                for k, v in trial.params.items()})
-    row.update({k: v for k, v in trial.user_attrs.items()
-                if k not in ("candset_size", "pair_completeness")})
-    return row
-
-
-def export(storage=STORAGE, experiment: str = "") -> None:
-    """Regenerate the CSV views from optuna.db (the source of truth).
-
-    Reads whatever studies are already in the DB — run it after a full or even a
-    partial sweep. For each dataset it dumps the partition study
-    (``<dataset>[_<experiment>]``) and, if present, its full-data retrain
-    (``..._full``) as verbatim ``trials_dataframe`` logs, then collects the
-    Pareto-optimal trials of each phase into ``pareto_fronts[_<experiment>].csv``
-    (partition) and ``full_pareto_fronts[_<experiment>].csv`` (full) — the
-    latter being the configs' honest end-to-end numbers.
-    """
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    tag = f"_{experiment}" if experiment else ""
-    partition_rows, full_rows, n_studies = [], [], 0
-    for dataset in DATASETS:
-        for phase, suffix, sink in (("partition", "", partition_rows),
-                                    ("full", "_full", full_rows)):
-            study_name = f"{dataset}{tag}{suffix}"
-            try:
-                study = optuna.load_study(study_name=study_name, storage=storage)
-            except KeyError:
-                continue                             # phase not run yet — skip
-            n_studies += 1
-            study.trials_dataframe().to_csv(
-                os.path.join(OUTPUT_DIR, f"{study_name}_trials.csv"), index=False)
-            sink.extend(_pareto_row(dataset, t, phase) for t in front_trials(study))
-
-    if not partition_rows and not full_rows:
-        print(f"No studies found in {storage} — run the sweep first.")
-        return
-    written = []
-    for rows, fname in ((partition_rows, f"pareto_fronts{tag}.csv"),
-                        (full_rows, f"full_pareto_fronts{tag}.csv")):
-        if not rows:
-            continue
-        path = os.path.join(OUTPUT_DIR, fname)
-        with open(path, "w", newline="") as fh:
-            # rows may differ in keys across studies — union, first-seen order
-            fieldnames = list(dict.fromkeys(k for r in rows for k in r))
-            w = csv.DictWriter(fh, fieldnames=fieldnames, restval="")
-            w.writeheader()
-            w.writerows(rows)
-        written.append(f"{fname} ({len(rows)} Pareto trials)")
-    print(f"Wrote {', '.join(written)} and {n_studies} *_trials.csv from {storage}")
-
-
-def _load_studies(
-    suffix: str,
-    storage=STORAGE,
-    study_name: str | None = None,
-    experiment: str = "",
-):
-    """(dataset, study) for every matching study in optuna.db that has at least
-    one completed trial."""
-    out = []
-
-    datasets = [study_name] if study_name is not None else DATASETS
-    tag = f"_{experiment}" if experiment else ""
-
-    for dataset in datasets:
-        try:
-            s = optuna.load_study(
-                study_name=f"{dataset}{tag}{suffix}",
-                storage=storage,
-            )
-        except KeyError:
-            continue
-
-        if any(t.values is not None for t in s.trials):
-            out.append((dataset, s))
-
-    return out
-
-
-def summarize_fronts(
-    phase: str,
-    suffix: str,
-    storage=STORAGE,
-    study_name: str | None = None,
-    experiment: str = "",
-) -> None:
-    studies = _load_studies(suffix, storage, study_name, experiment)
-
-    rows = [
-        _pareto_row(dataset, t, phase)
-        for dataset, s in studies
-        for t in front_trials(s)
-    ]
-
-    if not rows:
-        return
-
-    df = pd.DataFrame(rows).sort_values(
-        ["dataset", "F1"],
-        ascending=[True, False],
-    )
-
-    print(
-        f"=== {phase}: {len(df)} Pareto-optimal configs across "
-        f"{len(studies)} dataset(s) ==="
-    )
-
-    display(df.reset_index(drop=True))
-
-
-def plot_pareto_fronts(
-    phase: str,
-    suffix: str,
-    storage=STORAGE,
-    study_name: str | None = None,
-    experiment: str = "",
-) -> None:
-    studies = _load_studies(suffix, storage, study_name, experiment)
-
-    if not studies:
-        return
-
-    fig, axes = plt.subplots(
-        len(studies),
-        2,
-        figsize=(11, 3.3 * len(studies)),
-        squeeze=False,
-    )
-
-    for r, (dataset, s) in enumerate(studies):
-        done = [t for t in s.trials if t.values is not None]
-        front = {t.number for t in front_trials(s)}
-
-        f1 = np.array([t.values[0] for t in done])
-        stats = [_blocking_stats(t) for t in done]
-        cs = np.array([c for c, _ in stats], dtype=float)
-        pc = np.array([p for _, p in stats], dtype=float)
-        opt = np.array([t.number in front for t in done])
-
-        for c, (x, xlabel, logx) in enumerate(
-            (
-                (cs, "surviving block pairs (candset)", True),
-                (pc, "blocking recall (pair completeness)", False),
-            )
-        ):
-            ax = axes[r][c]
-
-            ax.scatter(x[~opt], f1[~opt], s=18, c="lightgray", label="trial")
-
-            ax.scatter(
-                x[opt],
-                f1[opt],
-                s=46,
-                c="tab:red",
-                zorder=3,
-                edgecolor="k",
-                linewidth=0.4,
-                label="Pareto front",
-            )
-
-            ax.set(
-                xlabel=xlabel,
-                ylabel="F1",
-                title=f"{dataset} — {phase}",
-            )
-
-            if logx:
-                ax.set_xscale("log")
-
-            ax.grid(alpha=0.3)
-
-        axes[r][0].legend(loc="lower right", fontsize=8)
-
-    label = f"{experiment} {phase}" if experiment else phase
-    title = (
-        f"ZeroER++ {label} Pareto fronts"
-        if study_name is None
-        else f"ZeroER++ {label} Pareto fronts — {study_name}"
-    )
-
-    fig.suptitle(title, y=1.0, fontsize=13)
-    fig.tight_layout()
-    plt.show()
-
-
-def show_results(
-    storage=STORAGE,
-    study_name: str | None = None,
-    experiment: str = "",
-) -> None:
-    """Best configs + Pareto-front plots for whichever phases exist."""
-
-    shown = False
-
-    for phase, suffix in (
-        ("partition", ""),
-        ("full", "_full"),
-    ):
-        if _load_studies(suffix, storage, study_name, experiment):
-            summarize_fronts(phase, suffix, storage, study_name, experiment)
-            plot_pareto_fronts(phase, suffix, storage, study_name, experiment)
-            shown = True
-
-    if not shown:
-        target = f"study '{study_name}'" if study_name else "studies"
-        print(f"No matching {target} in storage yet.")
-
-
-# --------------------------------------------------------------------------
-# Blocking-only sweep views
-#
-# The blocking sweep records raw counts, not ratios, so everything below is
-# derived here — a new metric never means re-running the grid. It needs its own
-# views because ``_pareto_row`` hardcodes ``values[0]`` as an F1 column, which
-# would silently mislabel pair completeness.
-# --------------------------------------------------------------------------
 
 BLOCKING_EXPERIMENT = "blocking"
 PC_TARGET = 0.95            # "target recall" for the k* / candset@k* columns
@@ -681,7 +444,7 @@ def literature_report(storage=STORAGE, experiment=BLOCKING_EXPERIMENT,
 
 
 # --------------------------------------------------------------------------
-# Matching — the reference ladder (``ladder_baseline.py``). Lives in
+# Matching — the reference ladder. Lives in
 # MATCHING_STORAGE, not STORAGE: the blocking sweep is closed, and every matching
 # experiment runs on its fixed candidate sets.
 # --------------------------------------------------------------------------
@@ -759,3 +522,133 @@ def plot_ladder(df: pd.DataFrame, configs=("B-paper", "B-code")) -> None:
                  fontsize=13)
     fig.tight_layout()
     plt.show()
+
+
+# --------------------------------------------------------------------------
+# Matching — tuning studies (the Matching section of hyperparameter-tuning.ipynb)
+# and their full-data runs (zeroer.ipynb). A trial is one configuration fitted on
+# every named rung of a dataset; its value is the mean F1 over those rungs.
+# --------------------------------------------------------------------------
+
+def matching_trials(experiment, full=False, storage=MATCHING_STORAGE,
+                    datasets=None) -> pd.DataFrame:
+    """One row per trial of ``<dataset>_<experiment>[_full]``: its params, its
+    value (``mean_f1``) and its scalar attributes. ``config_hash`` identifies a
+    configuration across datasets — what donor selection joins on."""
+    rows = []
+    for dataset in (datasets or DATASETS):
+        name = f"{dataset}_{experiment}" + ("_full" if full else "")
+        try:
+            study = optuna.load_study(study_name=name, storage=storage)
+        except KeyError:
+            continue
+        rows += [dict(dataset=dataset, number=t.number, mean_f1=t.values[0], **t.params,
+                      **{k: v for k, v in t.user_attrs.items() if not k.endswith("rungs")})
+                 for t in study.trials if t.values is not None]
+    return pd.DataFrame(rows)
+
+
+def matching_rungs(experiment, full=False, attr="rungs", storage=MATCHING_STORAGE,
+                   datasets=None) -> pd.DataFrame:
+    """The per-rung counts behind every trial, metrics recomputed; ``attr`` is
+    ``"rungs"`` or, on a full run, ``"holdout_rungs"`` (the complementary half in each query direction)."""
+    rows = []
+    for dataset in (datasets or DATASETS):
+        name = f"{dataset}_{experiment}" + ("_full" if full else "")
+        try:
+            study = optuna.load_study(study_name=name, storage=storage)
+        except KeyError:
+            continue
+        rows += [dict(dataset=dataset, number=t.number,
+                      selection=t.user_attrs.get("selection"), **rung)
+                 for t in study.trials if t.values is not None
+                 for rung in t.user_attrs.get(attr, [])]
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["f1"] = _pair_f1(df.tp, df.predicted, df.n_gold)
+        df["accept_all_f1"] = _pair_f1(df.tp_blocking, df.candset_size, df.n_gold)
+        df["oracle_f1"] = _pair_f1(df.tp_blocking, df.tp_blocking, df.n_gold)
+    return df
+
+
+def donor_selected(trials: pd.DataFrame) -> pd.DataFrame:
+    """Per target dataset, the configuration the *other* datasets would pick: the
+    highest mean of their ``mean_f1`` among the configurations *every* dataset has
+    evaluated (the shared seed design — a donor's own TPE trials were never run on
+    the target, so they cannot be looked up there). Uses no label of the target — though it
+    does use the donors' — so it is the transferable counterpart of the target's
+    own best trial, which is tuned on the target's gold."""
+    wide = trials.pivot_table(index="config_hash", columns="dataset", values="mean_f1",
+                              aggfunc="first").dropna()
+    rows = []
+    for target in wide.columns:
+        donors = wide.drop(columns=target)
+        if donors.empty:
+            continue
+        pick = donors.mean(axis=1).idxmax()
+        rows.append(dict(dataset=target, config_hash=pick,
+                         donor_mean_f1=donors.mean(axis=1)[pick],
+                         mean_f1=wide.loc[pick, target],
+                         own_best_f1=wide[target].max()))
+    return pd.DataFrame(rows)
+
+
+def sql(query, db=DB, params=()):
+    with sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True) as con:
+        return pd.read_sql_query(query, con, params=params)
+
+
+def study_status(experiment, db=MATCHING_DB, full=False):
+    names = [f"{dataset}_{experiment}" + ("_full" if full else "") for dataset in DATASETS]
+    placeholders = ",".join("?" for _ in names)
+    return sql(f"""
+        SELECT s.study_name AS study,
+               SUM(CASE WHEN t.state = 'COMPLETE' THEN 1 ELSE 0 END) AS complete,
+               SUM(CASE WHEN t.state = 'FAIL' THEN 1 ELSE 0 END) AS failed,
+               SUM(CASE WHEN t.state = 'WAITING' THEN 1 ELSE 0 END) AS queued
+        FROM studies s LEFT JOIN trials t USING (study_id)
+        WHERE s.study_name IN ({placeholders})
+        GROUP BY s.study_name ORDER BY s.study_name
+    """, db=db, params=names)
+
+
+def show_table(frame):
+    if frame.empty:
+        print("No results stored for this experiment.")
+    else:
+        display(frame.round(4))
+
+
+def replay_results(experiment):
+    tables = []
+    for attr, scope in (("rungs", "full"), ("holdout_rungs", "complementary half")):
+        rungs = matching_rungs(experiment, full=True, attr=attr)
+        if rungs.empty:
+            continue
+        table = rungs.groupby(["dataset", "selection"]).f1.mean().unstack("selection")
+        bounds = (rungs.drop_duplicates(["dataset", "queried_side", "top_k"])
+                  .groupby("dataset")[["accept_all_f1", "oracle_f1"]].mean())
+        tables.append(table.join(bounds).assign(scope=scope).set_index("scope", append=True))
+    return pd.concat(tables).sort_index() if tables else pd.DataFrame()
+
+
+def treatments_frame(storage=MATCHING_STORAGE, datasets=None):
+    """One row per stored fit, the metrics recomputed from the raw counts."""
+    rows = []
+    for dataset in (datasets or DATASETS):
+        try:
+            study = optuna.load_study(study_name="{}_collapse".format(dataset), storage=storage)
+        except KeyError:
+            continue
+        rows += [dict(dataset=dataset, **t.params, **t.user_attrs) for t in study.trials]
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["PQ"] = df.tp_blocking / df.candset_size
+    df["PC"] = df.tp_blocking / df.n_gold
+    df["precision"] = df.tp / df.predicted
+    df["recall"] = df.tp / df.n_gold
+    df["f1"] = 2 * df.tp / (df.predicted + df.n_gold)
+    df["accept_all_f1"] = 2 * df.tp_blocking / (df.candset_size + df.n_gold)
+    df["oracle_f1"] = 2 * df.PC / (1 + df.PC)
+    return df

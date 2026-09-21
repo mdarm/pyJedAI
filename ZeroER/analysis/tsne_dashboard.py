@@ -5,21 +5,25 @@ candidate pair x feature space, with each attribute split into its left/right
 value) and lets you pick a point on the t-SNE map to inspect the original
 record pair column by column.
 
-Run (from this directory, in the data-env venv)::
+Run from the repository root, in the data-env venv::
 
-    streamlit run tsne_dashboard.py
+    streamlit run analysis/tsne_dashboard.py
 
 Requires streamlit >= 1.35 for the click-to-select (``on_select``) API.
 """
 import glob
 import os
+import sys
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-EXPORT_DIR = os.path.join(HERE, "..", "outputs", "tsne_notebook")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config import OUTPUT_DIR
+
+EXPORT_DIR = os.path.join(OUTPUT_DIR, "tsne_notebook")
 COMBINED = os.path.join(EXPORT_DIR, "tsne_all.parquet")
 
 st.set_page_config(page_title="ZeroER t-SNE explorer", layout="wide")

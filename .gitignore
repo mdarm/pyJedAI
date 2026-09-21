@@ -19,6 +19,7 @@ data/ccer/D2/gt_kaggle.csv
 # michail dev
 .cortex/
 ZeroER/NEXT-STEPS-matching.md
+ZeroER/MATCHING-PROGRESS.md
 .embs/
 ZeroER/outputs/tsne_notebook/*.parquet
 ZeroER/datasets/embeddings/

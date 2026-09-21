@@ -1,9 +1,4 @@
-"""Datasets and record embeddings for the ZeroER++ experiments.
-
-Owns the benchmark registry and everything that reads from disk: the five
-gold-standard datasets, their tuning partitions, and the precomputed LLM
-record embeddings. Nothing here knows about blocking, matching or Optuna.
-"""
+"""Benchmark and encoder metadata, dataset partitions and embedding loading."""
 
 from __future__ import annotations
 
@@ -16,26 +11,7 @@ import pandas as pd
 
 from pyjedai.datamodel import Data
 
-# Self-contained: the five gold-standard datasets live next to this file under
-# zeroer-experiments/datasets/, resolved relative to this file (cwd-independent).
-BENCH_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "datasets"))
-
-# Precomputed LLM embeddings, split by kind so the two families never share a
-# directory (see datasets/embeddings/README.md):
-#   datasets/embeddings/record/<dataset>/<model-stem>_{left,right}.npy
-#       one vector per record, the serialised whole row — what the blocker uses.
-#   datasets/embeddings/attribute/<dataset>/<model-stem>_<attr>_{left,right}.npy
-#       one vector per record per attribute, DeepER-style, plus a
-#       model-independent presence.npz marking absent values (stored as exact
-#       zero rows) — what the matcher's embedding features use.
-# Both are row-aligned with left.csv / right.csv. Keeping them apart matters:
-# ``embedding_models`` derives model names by stripping ``_left.npy``, so a
-# per-attribute file in the record directory would register as a model named
-# ``<model>_<attr>``.
-EMB_DIR = os.path.join(BENCH_DIR, "embeddings")
-RECORD_DIR = os.path.join(EMB_DIR, "record")
-ATTR_DIR = os.path.join(EMB_DIR, "attribute")
+from config import ATTR_DIR, BENCH_DIR, EMB_DIR, RECORD_DIR
 
 # Fraction of each benchmark kept for the Optuna *tuning* partition (see
 # ``load_data(partition=True)``). The study tunes on this slice only; the best
@@ -58,6 +34,31 @@ DATASETS = {
                                  tune_fraction=0.3),
     "amazon_googleproducts": dict(attributes=["title", "description", "manufacturer", "price"],
                                   tune_fraction=0.3, rename_2={"name": "title"})
+}
+
+
+# Encoder families and parameter counts (millions), shared by fusion and reporting.
+FAMILIES = {
+    "classic": ["minilm6", "minilm12", "mpnet", "distilroberta"],
+    "t5": ["st5_xl", "gtr_t5_large"],
+    "retriever": ["e5_large_v2", "e5_instruct", "bge_large", "gte_large"],
+    "llm": ["Qwen_Qwen3-Embedding-4B", "Qwen_Qwen3-Embedding-8B",
+            "codefuse-ai_F2LLM-v2-4B", "codefuse-ai_F2LLM-v2-8B", "codefuse-ai_F2LLM-v2-14B",
+            "Octen_Octen-Embedding-8B", "nvidia_llama-embed-nemotron-8b",
+            "microsoft_harrier-oss-v1-0.6b", "microsoft_harrier-oss-v1-27b",
+            "tencent_KaLM-Embedding-Gemma3-12B-2511"],
+}
+
+PARAMETERS_M = {
+    "minilm6": 22, "minilm12": 33, "distilroberta": 82, "mpnet": 110,
+    "gtr_t5_large": 335, "st5_xl": 1240,
+    "bge_large": 335, "e5_large_v2": 335, "gte_large": 335, "e5_instruct": 560,
+    "microsoft_harrier-oss-v1-0.6b": 600,
+    "Qwen_Qwen3-Embedding-4B": 4000, "codefuse-ai_F2LLM-v2-4B": 4000,
+    "Qwen_Qwen3-Embedding-8B": 8000, "codefuse-ai_F2LLM-v2-8B": 8000,
+    "Octen_Octen-Embedding-8B": 8000, "nvidia_llama-embed-nemotron-8b": 8000,
+    "tencent_KaLM-Embedding-Gemma3-12B-2511": 12000, "codefuse-ai_F2LLM-v2-14B": 14000,
+    "microsoft_harrier-oss-v1-27b": 27000,
 }
 
 

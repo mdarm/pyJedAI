@@ -12,23 +12,27 @@ flagged wherever it landed.
 
 Build the export first::
 
-    python blocking_space.py
+    python -m analysis.blocking_space
 
-then, from this directory::
+then, from the repository root::
 
-    streamlit run blocking_dashboard.py
+    streamlit run analysis/blocking_dashboard.py
 
 Requires streamlit >= 1.35 for the click-to-select (``on_select``) API.
 """
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-EXPORT_DIR = os.path.join(HERE, "..", "outputs", "blocking_space")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config import OUTPUT_DIR
+
+EXPORT_DIR = os.path.join(OUTPUT_DIR, "blocking_space")
 
 BLUE = "#4D6BFE"        # retrieved / highlight
 GRAY = "#9AA7BD"        # records
@@ -43,7 +47,7 @@ def load(name):
 
 
 if not os.path.exists(os.path.join(EXPORT_DIR, "records.parquet")):
-    st.error(f"No export in {EXPORT_DIR}. Run `python blocking_space.py` first.")
+    st.error(f"No export in {EXPORT_DIR}. Run `python -m analysis.blocking_space` first.")
     st.stop()
 
 records, gold, neighbours, meta = (load(n) for n in

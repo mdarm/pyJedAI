@@ -1,6 +1,6 @@
 """Record-space export for assessing blocking quality.
 
-``datasets/tsne_dashboard.py`` plots *pair* space — ``|u-v|`` and the ZeroER
+``analysis/tsne_dashboard.py`` plots *pair* space — ``|u-v|`` and the ZeroER
 similarity vector — which is the geometry a **matcher** sees. This module builds
 the complementary view: **record** space, where k-NN blocking actually operates.
 A gold pair is retrievable iff one endpoint falls inside the other's ``k``
@@ -19,8 +19,8 @@ Ranks are always computed on the **full** vectors. Only the *plotted* records ar
 subsampled (large right-hand collections are unplottable), so subsampling can
 never change a rank or a KPI — it only hides points.
 
-Run ``python blocking_space.py`` to build the default export, then
-``streamlit run datasets/blocking_dashboard.py``.
+Run ``python -m analysis.blocking_space`` to build the default export, then
+``streamlit run analysis/blocking_dashboard.py``.
 """
 from __future__ import annotations
 
@@ -33,7 +33,8 @@ from sklearn.manifold import TSNE
 
 from data import DATASETS, load_data, load_embeddings
 from estimator import nn_search
-from tuning import OUTPUT_DIR
+from metrics import gold_ranks
+from config import OUTPUT_DIR
 
 __all__ = ["build", "export", "gold_ranks", "OUT_DIR"]
 
@@ -66,26 +67,6 @@ def _tsne_2d(X, seed=0):
                 learning_rate="auto", random_state=seed).fit_transform(X)
 
 
-def gold_ranks(nbrs, data, queried_side, limit):
-    """1-based rank at which each gold pair enters the candidate set.
-
-    ``nbrs.shape[1] + 1`` means "never retrieved within the searched range".
-    k-NN lists are nested in k, so a pair is in the candidate set at every
-    ``k >= its rank`` — one pass therefore yields PC at *every* k.
-
-    Same computation as the blocking sweep's ``_gold_ranks``; the export asserts
-    the two agree before writing.
-    """
-    n_k = nbrs.shape[1]
-    ranks = np.full(len(data.ground_truth), n_k + 1, dtype=np.int64)
-    for r, (_, (id1, id2)) in enumerate(data.ground_truth.iterrows()):
-        i1 = data._ids_mapping_1[id1]              # left-table row index
-        i2 = data._ids_mapping_2[id2] - limit      # right-table row index
-        row, target = (i2, i1) if queried_side == "right" else (i1, i2)
-        hit = np.flatnonzero(nbrs[row] == target)
-        if hit.size:
-            ranks[r] = hit[0] + 1
-    return ranks
 
 
 def _plot_rows(n, keep, plot_max, seed):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Tuple
 
+import numpy as np
+
 
 def _count_gold_pairs_present(adj, data) -> int:
     """Count gold-standard pairs present in an adjacency-like container.
@@ -54,3 +56,24 @@ def blocking_recall(blocks, data) -> float:
         return 0.0
     truth = len(data.ground_truth)
     return _count_gold_pairs_present(blocks, data) / truth if truth else 0.0
+
+
+def gold_ranks(nbrs, data, queried_side, limit):
+    """1-based rank at which each gold pair enters the candidate set.
+
+    ``nbrs.shape[1] + 1`` means "never retrieved within the searched range".
+    k-NN lists are nested in k, so a pair is in the candidate set at every
+    ``k >= its rank`` — one pass therefore yields PC at *every* k.
+
+    Shared by the blocking sweep and record-space export.
+    """
+    n_k = nbrs.shape[1]
+    ranks = np.full(len(data.ground_truth), n_k + 1, dtype=np.int64)
+    for r, (_, (id1, id2)) in enumerate(data.ground_truth.iterrows()):
+        i1 = data._ids_mapping_1[id1]              # left-table row index
+        i2 = data._ids_mapping_2[id2] - limit      # right-table row index
+        row, target = (i2, i1) if queried_side == "right" else (i1, i2)
+        hit = np.flatnonzero(nbrs[row] == target)
+        if hit.size:
+            ranks[r] = hit[0] + 1
+    return ranks

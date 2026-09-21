@@ -32,7 +32,7 @@ and on both raw-dtype and astype(str) inputs.
 
 ``tests/test_feature_parity.py`` is that check, and it re-runs on demand: it reads
 the stored references in ``datasets/magellan-features/`` (built by
-``reference_features.py`` under the py3.6 ``py_entitymatching`` env), so it needs
+``prepare/reference_features.py`` under the py3.6 ``py_entitymatching`` env), so it needs
 neither that env nor upstream's code.
 
 One known difference, asserted rather than tolerated: **dblp_scholar's

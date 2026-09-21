@@ -2,7 +2,7 @@
 
 The port has to match ``py_entitymatching``'s ``extract_features`` value for
 value, and the only way to know is to compare against output that real
-``py_entitymatching`` produced. That output exists: ``reference_features.py`` ran
+``py_entitymatching`` produced. That output exists: ``prepare/reference_features.py`` ran
 upstream's own extraction under the py3.6 env over every ladder cell and stored
 the matrices in ``datasets/magellan-features/``. **This test reads them.** It does
 not re-derive the reference, so it needs neither that env nor upstream's code —
@@ -37,8 +37,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from reference_features import (BENCH_DIR, FEATURES_DIR, LADDER, PAIRS_DIR,
-                                _tables, cell_name)
+from config import BENCH_DIR, FEATURES_DIR, LADDER, PAIRS_DIR, cell_name
+from reference_data import load_reference_tables
 from zeroer_features import build_zeroer_features
 
 # one ULP on a float64 similarity in [0, 1]
@@ -72,12 +72,12 @@ def _smallest_cell(dataset):
 def _ours(dataset, side, k):
     """Our port's matrix on that cell's stored pairs, row-aligned with them.
 
-    Tables come from ``reference_features._tables`` rather than being re-read
+    Tables come from ``reference_data.load_reference_tables`` rather than being re-read
     here: it applies the same per-dataset prep (``abt_buy``'s description concat,
     ``amazon``'s rename) and the same UTF-8 decoding the stored reference was
     built with. Duplicating that would let the two drift.
     """
-    left, right = _tables(dataset, BENCH_DIR)
+    left, right = load_reference_tables(dataset, BENCH_DIR)
     pairs_df = pd.read_csv(join(PAIRS_DIR, cell_name(dataset, side, k) + ".csv"),
                            dtype=str)
     idx_l = {str(v): i for i, v in enumerate(left["id"])}
