@@ -15,10 +15,10 @@ from os.path import exists, join
 import numpy as np
 import pandas as pd
 
-from config import ATTR_DIR, BANK_DIR, BENCH_DIR, FEATURES_DIR, LADDER, cell_name
-from data import DATASETS, embedding_models
-from embedding_bank import cell_dir, sides
-from embedding_features import METRICS
+from zeroer.config import ATTR_DIR, BANK_DIR, BENCH_DIR, FEATURES_DIR, LADDER, cell_name
+from zeroer.data.benchmarks import DATASETS, embedding_models
+from zeroer.features.bank import cell_dir, sides
+from zeroer.features.embeddings import METRICS
 
 def _manifest(path, update=None):
     manifest = json.load(open(path)) if exists(path) else {}

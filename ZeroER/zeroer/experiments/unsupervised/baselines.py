@@ -13,13 +13,13 @@ import optuna
 import pandas as pd
 from optuna.trial import TrialState
 
-from config import FEATURES_DIR, LADDER, cell_name
-from decisions import decision_rows, threshold_curve
-from evaluation import DROP_GROUPS
-from matcher import ZeroERMatcher
-from unsupervised import (_code_hash as _shared_code_hash, _database, _distributions,
+from zeroer.config import FEATURES_DIR, LADDER, cell_name
+from zeroer.decisions import decision_rows, threshold_curve
+from zeroer.experiments.evaluation import DROP_GROUPS
+from zeroer.matcher import ZeroERMatcher
+from zeroer.experiments.unsupervised.runner import (_code_hash as _shared_code_hash, _database, _distributions,
                           _hash, _json, _load_gold, _storage, _store_decisions)
-from unsupervised_features import _candidate_input
+from zeroer.features.panels import _candidate_input
 
 
 BASELINES = {

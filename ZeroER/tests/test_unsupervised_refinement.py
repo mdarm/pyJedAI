@@ -2,8 +2,8 @@
 import optuna
 import pytest
 
-import unsupervised as core
-from unsupervised_refinement import run_refinement
+import zeroer.experiments.unsupervised.runner as core
+from zeroer.experiments.unsupervised.refinement import run_refinement
 from test_unsupervised_runner import setup
 
 

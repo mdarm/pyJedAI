@@ -15,7 +15,7 @@ from os.path import exists, join
 import numpy as np
 import pandas as pd
 
-from config import BENCH_DIR, FEATURES_DIR, PAIRS_DIR, cell_name
+from zeroer.config import BENCH_DIR, FEATURES_DIR, PAIRS_DIR, cell_name
 from prepare.reference_features import extract_pair_features
 
 IDS = ["ltable_id", "rtable_id"]

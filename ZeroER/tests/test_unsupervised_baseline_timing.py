@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import unsupervised_baseline_timing as timing
+import zeroer.experiments.unsupervised.baseline_timing as timing
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def setup(monkeypatch, tmp_path):
     monkeypatch.setattr(timing, "load_reference_tables", lambda *args: (left.copy(), right.copy()))
     monkeypatch.setattr(timing, "LADDER", {"fixture": [("right", 2)]})
     monkeypatch.setattr(timing, "_code_hash", lambda: "baseline-timing-code")
-    monkeypatch.setattr("unsupervised._load_gold", lambda *a: pytest.fail("timing read gold"))
+    monkeypatch.setattr("zeroer.experiments.unsupervised.runner._load_gold", lambda *a: pytest.fail("timing read gold"))
     calls = dict(build=0, fit=[])
     original = timing.build_zeroer_features
 

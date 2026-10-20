@@ -13,10 +13,10 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
-from decisions import decode, _reported_threshold
-from unsupervised import _database, _hash, _json
-import unsupervised_features as feature_inputs
-from unsupervised_features import _candidate_input, _raw_scores
+from zeroer.decisions import decode, _reported_threshold
+from zeroer.experiments.unsupervised.runner import _database, _hash, _json
+import zeroer.features.panels as feature_inputs
+from zeroer.features.panels import _candidate_input, _raw_scores
 
 
 DEFAULT_COMBINATIONS = {"classic:pair": ["minilm6", "mpnet"],

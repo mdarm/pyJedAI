@@ -10,8 +10,8 @@ import optuna
 import pandas as pd
 from IPython.display import display
 
-from config import MATCHING_STORAGE, OUTPUT_DIR, STORAGE
-from data import DATASETS
+from zeroer.config import MATCHING_STORAGE, OUTPUT_DIR, STORAGE
+from zeroer.data.benchmarks import DATASETS
 
 DB = Path(OUTPUT_DIR) / "optuna.db"
 MATCHING_DB = Path(OUTPUT_DIR) / "optuna_matching.db"

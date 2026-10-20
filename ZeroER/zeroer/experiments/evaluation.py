@@ -8,12 +8,12 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 
-from config import BENCH_DIR, FEATURES_DIR, LADDER, MODEL, cell_name
-from data import embedding_models, load_data, load_embeddings
-from embedding_bank import load_bank, load_presence
-from embedding_features import fuse
-from matcher import ZeroERMatcher
-from reference_data import load_reference_tables
+from zeroer.config import BENCH_DIR, FEATURES_DIR, LADDER, MODEL, cell_name
+from zeroer.data.benchmarks import embedding_models, load_data, load_embeddings
+from zeroer.features.bank import load_bank, load_presence
+from zeroer.features.embeddings import fuse
+from zeroer.matcher import ZeroERMatcher
+from zeroer.data.reference import load_reference_tables
 
 # These stored feature groups are excluded from matching; class leaks gold.
 DROP_GROUPS = {"fodors_zagats": ["type", "class"]}
@@ -40,7 +40,7 @@ def blocking_cosine(dataset, stored):
 
 def presence(dataset, ids, attributes):
     """Per pair and attribute: is the value there on *both* sides? Read off
-    ``reference_data.load_reference_tables`` — the tables the stored matrices were built
+    ``zeroer.data.reference.load_reference_tables`` — the tables the stored matrices were built
     from (``abt_buy``'s right ``description`` is upstream's ``description +
     manufacturer`` concat, which propagates NaN). An absent value is an all-zero
     feature block in the stored matrix; this is what tells it from a present
@@ -168,7 +168,7 @@ def fit_rungs(dataset, loaded, config, attributes=None, panel=None, include_stri
     ``loaded``: {side: ``load_side(...)``}, so a search loads each side once.
     ``attributes`` restricts the matrix to those attribute blocks (None = all).
     ``panel`` — ``dict(models=[...], fusion=...)`` — adds the panel's embedding
-    columns (``embedding_features.fuse``) for the same attributes; it needs
+    columns (``zeroer.features.embeddings.fuse``) for the same attributes; it needs
     ``load_side(bank=True)``. ``include_strings=False`` uses only those embedding
     columns and their cached presence masks; an empty panel is invalid.
     Returns one dict of raw counts per rung; a fit that raises scores nothing

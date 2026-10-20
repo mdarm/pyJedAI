@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import embedding_bank as bank
+import zeroer.features.bank as bank
 from prepare import primary_candidates as primary
 
 

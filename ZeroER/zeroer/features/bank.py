@@ -7,8 +7,8 @@ from os.path import join
 
 import pandas as pd
 
-from config import BANK_DIR, LADDER, cell_name
-from data import DATASETS
+from zeroer.config import BANK_DIR, LADDER, cell_name
+from zeroer.data.benchmarks import DATASETS
 
 
 def sides(dataset):

@@ -18,9 +18,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from data import ATTR_DIR, DATASETS, RECORD_DIR, load_data, load_embeddings
-from embedding_features import build_embedding_features, embedding_feature_builder
-from estimator import BlockFeatureCache, ZeroEREstimator, nn_search
+from zeroer.data.benchmarks import ATTR_DIR, DATASETS, RECORD_DIR, load_data, load_embeddings
+from zeroer.features.embeddings import build_embedding_features, embedding_feature_builder
+from zeroer.estimator import BlockFeatureCache, ZeroEREstimator, nn_search
 
 MODEL = "minilm6"
 CLEAN = "fodors_zagats"        # no missing values anywhere
@@ -47,7 +47,7 @@ def _knn_pairs(dataset, data, k):
 
 
 def test_columns_are_named_into_their_attribute_block():
-    """``module.py`` groups by ``name.split("_")[0]``, so the name *is* the block."""
+    """``zeroer.model`` groups by ``name.split("_")[0]``, so the name *is* the block."""
     _require(CLEAN)
     data = load_data(CLEAN)
     attrs = DATASETS[CLEAN]["attributes"]

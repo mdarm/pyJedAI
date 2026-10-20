@@ -20,11 +20,11 @@ import optuna
 import pandas as pd
 import pytest
 
-import evaluation
-from tuning import run_baselines
-from data import RECORD_DIR
-from evaluation import load_side, one_to_one, one_to_one_oracle
-from config import FEATURES_DIR, MODEL, cell_name
+import zeroer.experiments.evaluation as evaluation
+from zeroer.experiments.tuning import run_baselines
+from zeroer.data.benchmarks import RECORD_DIR
+from zeroer.experiments.evaluation import load_side, one_to_one, one_to_one_oracle
+from zeroer.config import FEATURES_DIR, MODEL, cell_name
 
 DATASET = "fodors_zagats"
 needs_vectors = pytest.mark.skipif(
@@ -88,7 +88,7 @@ def test_the_two_halves_partition_the_queried_records():
 
 def test_a_panel_adds_its_columns_to_the_key_attribute_block():
     from os.path import isdir
-    from config import BANK_DIR
+    from zeroer.config import BANK_DIR
     if not isdir(join(BANK_DIR, cell_name(DATASET, "right", 4))):
         pytest.skip("no embedding bank — run python -m prepare.build_embedding_bank")
     loaded = {side: load_side(DATASET, side, partition="tune", cosine=False, bank=True)
@@ -102,7 +102,7 @@ def test_a_panel_adds_its_columns_to_the_key_attribute_block():
 
 
 def test_cosine_only_uses_exactly_the_requested_bank_columns(monkeypatch):
-    from config import BANK_DIR, LADDER
+    from zeroer.config import BANK_DIR, LADDER
     if not os.path.isdir(join(BANK_DIR, cell_name(DATASET, "right", 4))):
         pytest.skip("no embedding bank")
     loaded = {side: load_side(DATASET, side, partition="tune", cosine=False, bank=True)

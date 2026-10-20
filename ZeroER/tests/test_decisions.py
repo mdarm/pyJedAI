@@ -4,7 +4,7 @@ import json
 import numpy as np
 import pytest
 
-from decisions import decode, decision_rows, threshold_curve
+from zeroer.decisions import decode, decision_rows, threshold_curve
 
 
 def test_no_cut_includes_negative_scores_and_separates_id_spaces():

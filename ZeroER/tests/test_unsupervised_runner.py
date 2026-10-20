@@ -7,7 +7,7 @@ import optuna
 import pandas as pd
 import pytest
 
-import unsupervised as runner
+import zeroer.experiments.unsupervised.runner as runner
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ import numpy as np
 import optuna
 from optuna.trial import TrialState
 
-import unsupervised as core
+import zeroer.experiments.unsupervised.runner as core
 
 
 def run_refinement(source_study, storage, configs, experiment="unsupervised-refined-v1"):

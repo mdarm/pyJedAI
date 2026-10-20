@@ -21,7 +21,7 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import OUTPUT_DIR
+from zeroer.config import OUTPUT_DIR
 
 EXPORT_DIR = os.path.join(OUTPUT_DIR, "tsne_notebook")
 COMBINED = os.path.join(EXPORT_DIR, "tsne_all.parquet")

@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import embedding_bank
-import unsupervised_features as uf
+import zeroer.features.bank as embedding_bank
+import zeroer.features.panels as uf
 
 
 @pytest.fixture

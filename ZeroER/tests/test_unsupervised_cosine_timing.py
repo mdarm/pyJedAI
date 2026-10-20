@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import unsupervised_cosine_timing as timing
+import zeroer.experiments.unsupervised.cosine_timing as timing
 
 
 @pytest.fixture

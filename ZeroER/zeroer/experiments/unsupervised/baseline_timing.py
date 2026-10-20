@@ -12,22 +12,23 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 
-from config import LADDER
-from decisions import decode, _reported_threshold
-from evaluation import DROP_GROUPS
-from matcher import ZeroERMatcher
-from reference_data import load_reference_tables
-from unsupervised import _database, _hash, _json
-from unsupervised_baseline import BASELINES, _code_hash as _baseline_code_hash, _load_cell
-from zeroer_features import build_zeroer_features
+from zeroer.config import LADDER
+from zeroer.decisions import decode, _reported_threshold
+from zeroer.experiments.evaluation import DROP_GROUPS
+from zeroer.matcher import ZeroERMatcher
+from zeroer.data.reference import load_reference_tables
+from zeroer.experiments.unsupervised.runner import _database, _hash, _json
+from zeroer.experiments.unsupervised.baselines import BASELINES, _code_hash as _baseline_code_hash, _load_cell
+from zeroer.features.strings import build_zeroer_features
 
 THRESHOLDS = (.1, .25, .5, .75, .9)
 
 
 def _code_hash():
-    root = Path(__file__).parent
+    root = Path(__file__).resolve().parents[2]
     return sha256(_baseline_code_hash().encode() + b"".join((root / name).read_bytes()
-        for name in ("unsupervised_baseline_timing.py", "zeroer_features.py", "reference_data.py"))).hexdigest()
+        for name in ("experiments/unsupervised/baseline_timing.py",
+                     "features/strings.py", "data/reference.py"))).hexdigest()
 
 
 def _tables_hash(left, right):

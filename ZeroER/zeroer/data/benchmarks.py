@@ -11,7 +11,7 @@ import pandas as pd
 
 from pyjedai.datamodel import Data
 
-from config import ATTR_DIR, BENCH_DIR, EMB_DIR, RECORD_DIR
+from zeroer.config import ATTR_DIR, BENCH_DIR, EMB_DIR, RECORD_DIR
 
 # Fraction of each benchmark kept for the Optuna *tuning* partition (see
 # ``load_data(partition=True)``). The study tunes on this slice only; the best

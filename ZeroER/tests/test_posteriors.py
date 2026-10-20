@@ -25,10 +25,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from data import DATASETS, RECORD_DIR, load_data
-from estimator import BlockFeatureCache, ZeroEREstimator
-from matcher import ZeroERMatcher
-from zeroer_features import build_zeroer_features
+from zeroer.data.benchmarks import DATASETS, RECORD_DIR, load_data
+from zeroer.estimator import BlockFeatureCache, ZeroEREstimator
+from zeroer.matcher import ZeroERMatcher
+from zeroer.features.strings import build_zeroer_features
 
 DATASET = "fodors_zagats"
 K = 2
@@ -98,7 +98,7 @@ def test_misaligned_posterior_raises_instead_of_truncating():
     features = pd.DataFrame({"a_a_lev_sim": [0.1, 0.9, 0.5]})
 
     # stub the EM: return one posterior too few for the three feature rows
-    import matcher as matcher_module
+    import zeroer.matcher as matcher_module
     original = matcher_module.ZeroerModel.run_em
     matcher_module.ZeroerModel.run_em = staticmethod(
         lambda *a, **k: (None, np.array([0.2, 0.8])))

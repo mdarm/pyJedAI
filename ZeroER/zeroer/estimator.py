@@ -1,15 +1,15 @@
 """Orchestration layer — the end-to-end ZeroER pipeline and its blocking.
 
 This is the top of the three-layer split: it owns the candidate-generation
-(blocking) stage and wires it to the matcher in ``matcher.py``, which in turn
-drives the pure model in ``module.py``.
+(blocking) stage and wires it to ``zeroer.matcher``, which in turn
+drives the pure model in ``zeroer.model``.
 
 * ``nn_search`` / ``_precomputed_nn_blocks`` — faiss k-NN candidate generation
   over record embeddings computed offline.
 * ``BlockFeatureCache`` — blocking + feature reuse across a sweep's trials.
 * ``ZeroEREstimator`` — the public entry point. Every knob is a flat, typed
   constructor argument, so an Optuna ``suggest_*`` maps one-to-one onto it.
-  Experiments with cached candidates use ``evaluation.py`` and the matcher directly.
+  Experiments with cached candidates use ``zeroer.experiments.evaluation`` and the matcher directly.
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ from pyjedai.comparison_cleaning import WeightedEdgePruning
 from pyjedai.datamodel import Data
 from pyjedai.vector_based_blocking import EmbeddingsNNBlockBuilding
 
-from data import load_embeddings
-from matcher import ZeroERMatcher
-from zeroer_features import build_zeroer_features
+from zeroer.data.benchmarks import load_embeddings
+from zeroer.matcher import ZeroERMatcher
+from zeroer.features.strings import build_zeroer_features
 
 __all__ = ["ZeroERMatcher", "ZeroEREstimator", "BlockFeatureCache", "nn_search"]
 
@@ -99,7 +99,7 @@ class BlockFeatureCache:
 
     ``extra_features`` appends matcher features that ``build_zeroer_features``
     does not produce — Arm B's embedding similarities
-    (``embedding_features.embedding_feature_builder``). It is called once per
+    (``zeroer.features.embeddings.embedding_feature_builder``). It is called once per
     build, with the ``k_max`` pair array, and must return a frame of that many
     rows. Only pair-local features are admissible: the ``top_k`` slice above is
     exact precisely because no feature depends on the other pairs in the set.
@@ -178,7 +178,7 @@ class ZeroEREstimator:
         ``vectorizer`` names the offline embedding model (the ``cache`` key).
     vectors:
         ``(left, right)`` record-embedding matrices, row-aligned with the two
-        tables (``data.load_embeddings``). Injected rather than loaded here so
+        tables (``zeroer.data.benchmarks.load_embeddings``). Injected rather than loaded here so
         the estimator stays ignorant of the on-disk embedding layout.
     cache:
         A ``BlockFeatureCache``. Serves blocking *and* the ZeroER feature matrix
@@ -195,7 +195,7 @@ class ZeroEREstimator:
     extra_features:
         Optional ``pairs -> DataFrame`` appended to the ZeroER string-similarity
         matrix — Arm B's per-attribute embedding similarities, built by
-        ``embedding_features.embedding_feature_builder``. Injected rather than
+        ``zeroer.features.embeddings.embedding_feature_builder``. Injected rather than
         loaded here, like ``vectors``, so the estimator stays ignorant of the
         on-disk embedding layout. On the ``cache`` path the cache owns feature
         generation, so pass it to the ``BlockFeatureCache`` instead; supplying

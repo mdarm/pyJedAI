@@ -31,10 +31,10 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from data import DATASETS, load_data, load_embeddings
-from estimator import nn_search
-from metrics import gold_ranks
-from config import OUTPUT_DIR
+from zeroer.data.benchmarks import DATASETS, load_data, load_embeddings
+from zeroer.estimator import nn_search
+from zeroer.reporting.metrics import gold_ranks
+from zeroer.config import OUTPUT_DIR
 
 __all__ = ["build", "export", "gold_ranks", "OUT_DIR"]
 

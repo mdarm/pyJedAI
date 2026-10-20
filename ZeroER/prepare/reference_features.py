@@ -15,14 +15,14 @@ from os.path import exists, join
 import numpy as np
 import pandas as pd
 
-from config import (BENCH_DIR, DISTANCE, FEATURES_DIR, LADDER, MODEL, PAIRS_DIR,
+from zeroer.config import (BENCH_DIR, DISTANCE, FEATURES_DIR, LADDER, MODEL, PAIRS_DIR,
                     UPSTREAM, cell_name)
-from reference_data import load_reference_tables
+from zeroer.data.reference import load_reference_tables
 
 def export_pairs(dataset):
     """Write one ``(ltable_id, rtable_id)`` CSV per ladder cell."""
-    from data import load_data, load_embeddings
-    from estimator import nn_search
+    from zeroer.data.benchmarks import load_data, load_embeddings
+    from zeroer.estimator import nn_search
 
     data = load_data(dataset)
     v1, v2 = load_embeddings(dataset, MODEL, data)

@@ -4,8 +4,8 @@ from pathlib import Path
 import optuna
 import pytest
 
-from config import BANK_DIR, MATCHING_STORAGE, STORAGE
-from tuning import (EmbeddingObjective, MatchingObjective, replay_selected,
+from zeroer.config import BANK_DIR, MATCHING_STORAGE, STORAGE
+from zeroer.experiments.tuning import (EmbeddingObjective, MatchingObjective, replay_selected,
                     run_blocking_sweep, run_diagnosis)
 
 DATASET = "fodors_zagats"
@@ -78,14 +78,14 @@ def test_search_and_replay_match_recorded_fits(experiment, selection, tmp_path, 
     def unexpected_load(*args, **kwargs):
         pytest.fail("A completed replay must not load or fit candidates again")
 
-    monkeypatch.setattr("tuning.load_sides", unexpected_load)
+    monkeypatch.setattr("zeroer.experiments.tuning.load_sides", unexpected_load)
     result = replay_selected(DATASET, experiment, {selection: 0}, fixed=FIXED,
                               missing=missing, attributes=attributes, storage=storage)
     assert len(result.trials) == 1
 
 
 def test_blocking_sweep_retains_counts_and_resumes(tmp_path, monkeypatch):
-    monkeypatch.setattr("tuning.embedding_models", lambda dataset: ["minilm6"])
+    monkeypatch.setattr("zeroer.experiments.tuning.embedding_models", lambda dataset: ["minilm6"])
     storage = "sqlite:///" + str(tmp_path / "blocking.db")
     study = run_blocking_sweep(DATASET, 2, ["right", "left"], storage=storage)
     original = optuna.load_study(study_name=f"{DATASET}_blocking", storage=STORAGE)
@@ -101,8 +101,8 @@ def test_blocking_sweep_retains_counts_and_resumes(tmp_path, monkeypatch):
 
 
 def test_cosine_replay_restores_features_and_all_tuned_settings(tmp_path):
-    from data import DATASETS
-    from evaluation import evaluate_config, load_sides
+    from zeroer.data.benchmarks import DATASETS
+    from zeroer.experiments.evaluation import evaluate_config, load_sides
 
     if not (Path(BANK_DIR) / f"{DATASET}__right_k4").exists():
         pytest.skip("no cached embedding bank")

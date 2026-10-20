@@ -15,10 +15,10 @@ import optuna
 import pandas as pd
 from optuna.trial import TrialState
 
-from decisions import decode, _reported_threshold
-from unsupervised import (_baselines, _code_hash, _database, _fit, _hash, _json,
+from zeroer.decisions import decode, _reported_threshold
+from zeroer.experiments.unsupervised.runner import (_baselines, _code_hash, _database, _fit, _hash, _json,
                           _observed, _prepare, _storage)
-from unsupervised_features import benchmark_similarity, load_cell
+from zeroer.features.panels import benchmark_similarity, load_cell
 
 
 def _timing_code_hash():

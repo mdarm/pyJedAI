@@ -3,7 +3,7 @@ from os.path import join
 
 import pandas as pd
 
-from config import BENCH_DIR
+from zeroer.config import BENCH_DIR
 
 PREP = {
     "fodors_zagats": {},

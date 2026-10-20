@@ -37,9 +37,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from config import BENCH_DIR, FEATURES_DIR, LADDER, PAIRS_DIR, cell_name
-from reference_data import load_reference_tables
-from zeroer_features import build_zeroer_features
+from zeroer.config import BENCH_DIR, FEATURES_DIR, LADDER, PAIRS_DIR, cell_name
+from zeroer.data.reference import load_reference_tables
+from zeroer.features.strings import build_zeroer_features
 
 # one ULP on a float64 similarity in [0, 1]
 TOL = 1e-15
@@ -72,7 +72,7 @@ def _smallest_cell(dataset):
 def _ours(dataset, side, k):
     """Our port's matrix on that cell's stored pairs, row-aligned with them.
 
-    Tables come from ``reference_data.load_reference_tables`` rather than being re-read
+    Tables come from ``zeroer.data.reference.load_reference_tables`` rather than being re-read
     here: it applies the same per-dataset prep (``abt_buy``'s description concat,
     ``amazon``'s rename) and the same UTF-8 decoding the stored reference was
     built with. Duplicating that would let the two drift.

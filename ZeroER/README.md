@@ -16,30 +16,58 @@ selection evidence and distinguish these scopes.
 Distribution fitting uses no transitivity constraints; thresholds and greedy
 one-to-one matching operate only on frozen scores.
 
-| Code | Responsibility |
+Reusable Python code lives in the `zeroer` package. Notebooks remain at the
+root as experiment entrypoints; preparation and exploration have separate folders.
+
+| Location | Responsibility |
 | --- | --- |
-| `module.py` → `matcher.py` → `estimator.py` | Numerical model, pyJedAI matching adapter, then blocking/matching pipeline |
-| `data.py`, `reference_data.py` | Dataset/encoder metadata and loading; upstream table preparation |
-| `zeroer_features.py`, `embedding_features.py` | String features, embedding similarities and fusion |
-| `embedding_bank.py` | Read cached embedding features and presence flags |
-| `evaluation.py`, `metrics.py`, `diagnostics.py` | Fit fixed candidates, score predictions and inspect fitted components |
-| `tuning.py` | Shared objectives, resumable sweeps and replays of stored trial parameters |
-| `reporting.py` | Database queries, result tables and plots |
-| `unsupervised*.py`, `decisions.py` | Label-free selection, fixed-candidate baselines, timing and threshold/greedy decisions |
-| `config.py` | Paths and frozen retrieval settings; Python 3.6 compatible |
-| `prepare/` | Commands that build cached experiment inputs |
-| `analysis/` | Exploratory notebooks, exports and Streamlit dashboards |
+| [zeroer/model.py](zeroer/model.py) | Numerical mixture model, EM fitting loop and final-parameter scoring |
+| [zeroer/matcher.py](zeroer/matcher.py) | Training and prediction adapter for pyJedAI; feature validation, initialization and match graphs |
+| [zeroer/estimator.py](zeroer/estimator.py) | Assemble blocking, feature generation and matching |
+| [zeroer/decisions.py](zeroer/decisions.py) | Threshold and greedy one-to-one decisions on frozen scores |
+| [zeroer/data/](zeroer/data/) | `benchmarks.py`: dataset/encoder metadata and loading; `reference.py`: upstream table preparation |
+| [zeroer/features/](zeroer/features/) | `strings.py`, `embeddings.py`: similarities; `bank.py`: cached inputs; `panels.py`: fitted feature transforms and record-disjoint splits |
+| [zeroer/experiments/](zeroer/experiments/) | `evaluation.py`, `tuning.py`: fixed-candidate evaluation, earlier searches and replays |
+| [zeroer/experiments/unsupervised/](zeroer/experiments/unsupervised/) | `runner.py`: label-free selection/refits; `baselines.py`, `refinement.py`; separate fitted, cosine and string-baseline timing modules |
+| [zeroer/reporting/](zeroer/reporting/) | `tables.py`: stored-result queries/plots; `metrics.py`: retrieval metrics; `diagnostics.py`: component inspection |
+| [zeroer/config.py](zeroer/config.py) | Shared paths and frozen retrieval settings; Python 3.6 compatible |
+| [prepare/](prepare/) | Commands that build cached experiment inputs |
+| [analysis/](analysis/) | Exploratory notebooks, exports and Streamlit dashboards |
 
 Experiment configurations and selection rules belong in the notebooks. Shared
-fitting code belongs in `evaluation.py`; an Optuna run uses `tuning.py`.
-Cached-candidate experiments call the matcher directly. Use `ZeroEREstimator`
-when the experiment also generates candidates.
+experiment orchestration belongs in `zeroer.experiments`; numerical computation
+stays in `zeroer.model`. Cached-candidate experiments call the matcher directly.
+Use `ZeroEREstimator` when the experiment also generates candidates.
+
+```python
+from zeroer.matcher import ZeroERMatcher
+from zeroer.estimator import ZeroEREstimator
+from zeroer.experiments.unsupervised.runner import run_search, run_refit
+```
+
+The fitting path is candidate pairs → feature preparation → `ZeroERMatcher` →
+`ZeroerModel.run_em`. For label-free selection, `PanelTransform` learns feature
+statistics on training rows and reuses them on validation rows. Prediction from
+that fitted state is `PanelTransform.transform` → `model.score_components` →
+`decisions.decode`; it needs no gold labels and does not run EM again.
+
+In the clean-clean experiments, pairs have shape `(n_pairs, 2)`, with right-side
+row IDs offset by the left-table size. Feature rows and boolean presence masks retain the same pair order.
+Feature names identify attribute blocks; an absent block is ignored only when
+`missing="ignore"`. Final scoring returns row-aligned LLRs, posteriors and marginal
+log densities. The legacy matcher graph retains last-E-step posteriors ≥ .5;
+`matcher.posteriors` retains all candidate probabilities. Gold is used separately
+for evaluation.
 
 The existing databases and caches keep their paths: blocking results in
 `outputs/optuna.db`, matching results in `outputs/optuna_matching.db`, Magellan
 features in `datasets/magellan-features/`, and cosine/L∞ features in
 `outputs/cosine_bank/`. Full-data results include tuning records and are
 development results.
+
+The move preserves artifact paths and stored notebook outputs. Code fingerprints
+now read the packaged sources; existing provenance checks still require a new
+experiment name when source code differs from a recorded run.
 
 Run preparation commands from this directory:
 
@@ -58,4 +86,12 @@ For exploration, run `python -m analysis.blocking_space`, then
 [analysis/embedding_space.ipynb](analysis/embedding_space.ipynb) produces the
 pair-space exports for `streamlit run analysis/tsne_dashboard.py`.
 
-Run checks with `../../data-env/bin/python -m pytest -q`.
+Run checks with `../../data-env/bin/python -m pytest -q`. The full suite includes
+benchmark refits and feature extraction. To check the package without replaying
+those experiments, use the synthetic/mocked suites:
+
+```bash
+../../data-env/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_unsupervised_*.py tests/test_decisions.py \
+  tests/test_primary_candidates.py tests/test_cached_reference_features.py
+```

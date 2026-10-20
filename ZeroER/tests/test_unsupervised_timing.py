@@ -7,7 +7,7 @@ import optuna
 import pandas as pd
 import pytest
 
-import unsupervised_timing as timing
+import zeroer.experiments.unsupervised.timing as timing
 
 
 @pytest.fixture

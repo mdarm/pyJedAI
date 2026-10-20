@@ -6,7 +6,7 @@ k-NN blocking actually searches: individual records, with each gold pair drawn
 as an edge that is either retrieved at the current ``k`` or missed.
 
 The question it answers is "why was this pair missed", which the KPI tables in
-``reporting.py`` can only pose. Click a record on the queried side and the panel
+``zeroer.reporting.tables`` can only pose. Click a record on the queried side and the panel
 lists what the blocker returned *instead*, in rank order, with the gold partner
 flagged wherever it landed.
 
@@ -30,7 +30,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from config import OUTPUT_DIR
+from zeroer.config import OUTPUT_DIR
 
 EXPORT_DIR = os.path.join(OUTPUT_DIR, "blocking_space")
 

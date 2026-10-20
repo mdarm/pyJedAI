@@ -7,9 +7,9 @@ import optuna
 import pandas as pd
 import pytest
 
-from config import MATCHING_STORAGE
-from unsupervised import load_threshold_curve
-import unsupervised_baseline as baseline
+from zeroer.config import MATCHING_STORAGE
+from zeroer.experiments.unsupervised.runner import load_threshold_curve
+import zeroer.experiments.unsupervised.baselines as baseline
 
 
 @pytest.fixture

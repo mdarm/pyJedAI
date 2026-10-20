@@ -16,11 +16,11 @@ import sys
 import numpy as np
 import pandas as pd
 
-from config import (ATTR_DIR, BANK_DIR, BENCH_DIR, DISTANCE, MODEL, PAIRS_DIR,
+from zeroer.config import (ATTR_DIR, BANK_DIR, BENCH_DIR, DISTANCE, MODEL, PAIRS_DIR,
                     RECORD_DIR, cell_name)
-from data import DATASETS, embedding_models
-from estimator import nn_search
-from unsupervised_features import _raw_scores
+from zeroer.data.benchmarks import DATASETS, embedding_models
+from zeroer.estimator import nn_search
+from zeroer.features.panels import _raw_scores
 
 DATASET, SIDE, K = "amazon_googleproducts", "left", 4
 METRICS = ("cos", "linf")

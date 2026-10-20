@@ -14,10 +14,10 @@ from os.path import join
 import numpy as np
 import pandas as pd
 
-from config import ATTR_DIR, BENCH_DIR, RECORD_DIR
-from data import DATASETS, FAMILIES
-from embedding_bank import load_bank, load_presence
-from embedding_features import FUSIONS, METRICS
+from zeroer.config import ATTR_DIR, BENCH_DIR, RECORD_DIR
+from zeroer.data.benchmarks import DATASETS, FAMILIES
+from zeroer.features.bank import load_bank, load_presence
+from zeroer.features.embeddings import FUSIONS, METRICS
 
 
 def _timings():

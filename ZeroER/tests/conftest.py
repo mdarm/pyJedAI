@@ -1,5 +1,4 @@
-"""Put ZeroER/ on sys.path so the tests import its top-level modules the same
-way the notebooks do (``from module import ...``, cwd=ZeroER)."""
+"""Make the local ``zeroer`` package importable, as in the root notebooks."""
 import os
 import sys
 from os.path import dirname

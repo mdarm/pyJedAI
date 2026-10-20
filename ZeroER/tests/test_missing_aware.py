@@ -17,9 +17,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from evaluation import informative, load_side
-from matcher import ZeroERMatcher
-from module import initial_labels
+from zeroer.experiments.evaluation import informative, load_side
+from zeroer.matcher import ZeroERMatcher
+from zeroer.model import initial_labels
 
 PAPER = dict(c_bay=0.01, init_threshold=0.5, tol=1e-5, max_iter=200, transitivity=False)
 

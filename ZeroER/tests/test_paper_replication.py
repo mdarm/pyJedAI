@@ -3,8 +3,8 @@
 Each test replays the upstream pipeline (chu-data-lab/zeroer) using this
 repo's components: the *original* Magellan candidate sets (pinned under
 ``tests/fixtures/`` — Magellan's blocking cannot run in this environment)
--> exact feature generation (``zeroer_features``) -> stock EM
-(``module.ZeroerModel``, c_bay=0.1, max_iter=40, as upstream ``run_zeroer``).
+-> exact feature generation (``zeroer.features.strings``) -> stock EM
+(``zeroer.model.ZeroerModel``, c_bay=0.1, max_iter=40, as upstream ``run_zeroer``).
 
 The asserted F1s are what the upstream code itself produces on these candidate
 sets (2-decimal rounding, as upstream prints). Where the repo's blocking is
@@ -37,9 +37,9 @@ import pandas as pd
 import pytest
 from sklearn.metrics import f1_score
 
-from module import ZeroerModel, get_y_init_given_threshold
-from data import BENCH_DIR
-from zeroer_features import build_zeroer_features
+from zeroer.model import ZeroerModel, get_y_init_given_threshold
+from zeroer.data.benchmarks import BENCH_DIR
+from zeroer.features.strings import build_zeroer_features
 
 FIXTURES = join(dirname(os.path.abspath(__file__)), "fixtures")
 

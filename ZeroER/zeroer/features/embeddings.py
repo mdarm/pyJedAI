@@ -6,10 +6,10 @@ whose shape is compatible with ZeroER's covariance decomposition
 (``deeper-distributed-representations``; ``zeroer-entity-resolution-zero-labels``
 Innovation 1). Whole-record similarity is deliberately *not* offered here — a
 single scalar summarising the pair correlates with every attribute group, and
-``module.py`` would file it into a singleton group, forcing an independence that
+``zeroer.model`` would file it into a singleton group, forcing an independence that
 does not hold.
 
-Columns are named ``{attr}_emb_{metric}``, so ``module.py``'s
+Columns are named ``{attr}_emb_{metric}``, so ``zeroer.model``'s
 ``name.split("_")[0]`` files each one into that attribute's covariance block. The
 name is a modelling decision, not a label.
 
@@ -49,8 +49,8 @@ from typing import Callable, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from config import ATTR_DIR
-from data import FAMILIES, load_embeddings
+from zeroer.config import ATTR_DIR
+from zeroer.data.benchmarks import FAMILIES, load_embeddings
 
 __all__ = ["METRICS", "FUSIONS", "build_embedding_features", "embedding_feature_builder", "fuse"]
 

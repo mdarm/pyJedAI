@@ -19,9 +19,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from matcher import ZeroERMatcher
-from module import get_y_init_given_threshold
-from config import FEATURES_DIR, cell_name
+from zeroer.matcher import ZeroERMatcher
+from zeroer.model import get_y_init_given_threshold
+from zeroer.config import FEATURES_DIR, cell_name
 
 
 def _load(k):

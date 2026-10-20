@@ -7,8 +7,8 @@ import pytest
 from scipy.special import expit, logit
 from scipy.stats import multivariate_normal
 
-from matcher import ZeroERMatcher
-from module import ZeroerModel, initial_labels
+from zeroer.matcher import ZeroERMatcher
+from zeroer.model import ZeroerModel, initial_labels
 
 
 @pytest.fixture
@@ -178,8 +178,8 @@ def test_masked_seed_is_honoured_even_when_the_likelihood_uses_zero_fill():
 def test_matcher_passes_explicit_seed_without_reinitializing(monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("an explicit seed must not be recomputed")
-    monkeypatch.setattr("matcher.initial_labels", forbidden)
-    monkeypatch.setattr("module.initial_labels", forbidden)
+    monkeypatch.setattr("zeroer.matcher.initial_labels", forbidden)
+    monkeypatch.setattr("zeroer.model.initial_labels", forbidden)
     seed = np.array([1, 1, 0, 0, 0, 0, 0, 0])
     matcher = ZeroERMatcher(max_iter=1)
     matcher.match_pairs([(i, 8 + i) for i in range(8)], _seed_features(), y_init=seed)

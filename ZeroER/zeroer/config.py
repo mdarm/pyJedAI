@@ -2,7 +2,8 @@
 import os
 from os.path import abspath, dirname, join
 
-ROOT_DIR = dirname(abspath(__file__))
+# Artifacts stay beside the notebooks, outside the Python package.
+ROOT_DIR = dirname(dirname(abspath(__file__)))
 BENCH_DIR = join(ROOT_DIR, "datasets")
 EMB_DIR = join(BENCH_DIR, "embeddings")
 RECORD_DIR = join(EMB_DIR, "record")

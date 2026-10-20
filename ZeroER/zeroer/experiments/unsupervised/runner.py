@@ -16,10 +16,10 @@ from optuna.distributions import CategoricalDistribution
 from optuna.trial import TrialState
 from sqlalchemy.engine import make_url
 
-from config import BENCH_DIR, MATCHING_STORAGE, STORAGE
-from decisions import decision_rows, threshold_curve
-from matcher import ZeroERMatcher
-from unsupervised_features import PanelTransform, load_cell, record_disjoint_splits
+from zeroer.config import BENCH_DIR, MATCHING_STORAGE, STORAGE
+from zeroer.decisions import decision_rows, threshold_curve
+from zeroer.matcher import ZeroERMatcher
+from zeroer.features.panels import PanelTransform, load_cell, record_disjoint_splits
 
 
 def _json(value):
@@ -31,10 +31,10 @@ def _hash(value):
 
 
 def _code_hash():
-    root = Path(__file__).parent
+    root = Path(__file__).resolve().parents[2]
     return sha256(b"".join((root / name).read_bytes() for name in (
-        "unsupervised.py", "unsupervised_features.py", "decisions.py",
-        "module.py", "matcher.py"))).hexdigest()
+        "experiments/unsupervised/runner.py", "features/panels.py", "decisions.py",
+        "model.py", "matcher.py"))).hexdigest()
 
 
 def _database(storage):

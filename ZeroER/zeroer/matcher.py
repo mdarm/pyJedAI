@@ -2,16 +2,16 @@
 
 This is the wrapper concern of the three-layer split. It depends on both:
 
-* the **model** (``module.ZeroerModel`` / ``get_y_init_given_threshold``), which
+* the **model** (``zeroer.model.ZeroerModel`` / ``get_y_init_given_threshold``), which
   knows nothing about pyJedAI, and
 * the **pyJedAI framework** (``Data``, ``PYJEDAIFeature``, ``Evaluation``),
   which knows nothing about ZeroER.
 
 ``ZeroERMatcher`` is the low-level pyJedAI stage (``PYJEDAIFeature``) that turns
 a block structure into a match graph: it builds the exact ZeroER/Magellan
-similarity-feature matrix (``zeroer_features``) from the candidate pairs and
-runs the ``ZeroerModel`` from ``module.py`` on it. Orchestration (blocking ->
-matching) lives one layer up, in ``estimator.py``.
+similarity-feature matrix (``zeroer.features.strings``) from the candidate pairs and
+runs the ``ZeroerModel`` from ``zeroer.model`` on it. Orchestration (blocking ->
+matching) lives one layer up, in ``zeroer.estimator``.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ from networkx import Graph
 from pyjedai.datamodel import Data, PYJEDAIFeature
 from pyjedai.evaluation import Evaluation
 
-from module import ZeroerModel, initial_labels
-from zeroer_features import build_zeroer_features
+from zeroer.model import ZeroerModel, initial_labels
+from zeroer.features.strings import build_zeroer_features
 
 __all__ = ["ZeroERMatcher"]
 
@@ -35,12 +35,12 @@ class ZeroERMatcher(PYJEDAIFeature):
 
     Consumes any pyJedAI block structure (cleaned candidate-pair dict),
     builds the exact ZeroER/Magellan similarity-feature matrix
-    (``zeroer_features.build_zeroer_features``), and runs the ``ZeroerModel``
-    from ``module.py``. Predicted matches (P_M >= 0.5) become weighted edges.
+    (``zeroer.features.strings.build_zeroer_features``), and runs the ``ZeroerModel``
+    from ``zeroer.model``. Predicted matches (P_M >= 0.5) become weighted edges.
 
     ``extra_features`` is an optional ``pairs -> DataFrame`` whose columns are
     appended to that matrix — Arm B's per-attribute embedding similarities
-    (``embedding_features.embedding_feature_builder``). It applies to
+    (``zeroer.features.embeddings.embedding_feature_builder``). It applies to
     ``predict``, which builds the matrix itself; callers that build their own and
     go straight to ``match_pairs`` (the ``BlockFeatureCache`` path) have already
     appended whatever they wanted.
@@ -85,7 +85,7 @@ class ZeroERMatcher(PYJEDAIFeature):
         # hard: hard-assignment EM. Both are upstream run_em arguments.
         self.pi_M = pi_M
         self.hard = hard
-        # Not upstream — see module.initial_labels and ZeroerModel.__init__.
+        # Not upstream — see zeroer.model.initial_labels and ZeroerModel.__init__.
         # init_statistic 'present_mean' seeds EM from the blocks a pair has;
         # missing='ignore' leaves absent attributes out of the likelihood instead
         # of reading them as zero similarity. Both need match_pairs(present=).
@@ -154,7 +154,7 @@ class ZeroERMatcher(PYJEDAIFeature):
         """EM + thresholding on an externally built feature matrix (rows
         aligned with ``candidate_pairs``). ``predict`` lands here after
         building the matrix itself; sweeps that cache features across trials
-        (``estimator.BlockFeatureCache``) reach it through
+        (``zeroer.estimator.BlockFeatureCache``) reach it through
         ``ZeroEREstimator.fit_predict``.
 
         ``present``: {attribute block: boolean array, True where both records

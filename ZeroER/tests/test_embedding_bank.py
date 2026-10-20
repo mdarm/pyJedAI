@@ -15,11 +15,11 @@ from os.path import join
 import numpy as np
 import pytest
 
-import embedding_bank
+import zeroer.features.bank as embedding_bank
 from prepare.build_embedding_bank import build
-from config import ATTR_DIR
-from data import DATASETS, FAMILIES, PARAMETERS_M, load_data
-from embedding_features import build_embedding_features, fuse
+from zeroer.config import ATTR_DIR
+from zeroer.data.benchmarks import DATASETS, FAMILIES, PARAMETERS_M, load_data
+from zeroer.features.embeddings import build_embedding_features, fuse
 
 DATASET, MODEL = "fodors_zagats", "minilm6"
 pytestmark = pytest.mark.skipif(
@@ -65,7 +65,7 @@ def test_rebuild_is_skipped(bank, capsys):
 
 
 def test_every_pool_model_has_a_family_and_a_size():
-    from data import embedding_models
+    from zeroer.data.benchmarks import embedding_models
     pool = embedding_models(DATASET)
     in_families = [m for members in FAMILIES.values() for m in members]
     assert sorted(in_families) == sorted(pool) == sorted(PARAMETERS_M)

@@ -7,7 +7,7 @@ import numpy as np
 from scipy.stats import multivariate_normal
 
 def _blocks(columns):
-    """{attribute: its column names}, grouped the way ``module.py`` groups them."""
+    """{attribute: its column names}, grouped the way ``zeroer.model`` groups them."""
     blocks = {}
     for name in columns:
         blocks.setdefault(name.split("_")[0], []).append(name)

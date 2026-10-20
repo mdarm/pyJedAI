@@ -1,6 +1,7 @@
 """Optuna searches, fixed sweeps and full-data replays.
 
-Experiment choices live in the notebooks; fitting and scoring use evaluation.py.
+Experiment choices live in the notebooks; fitting and scoring use
+zeroer.experiments.evaluation.
 """
 from __future__ import annotations
 
@@ -15,15 +16,15 @@ import pandas as pd
 from optuna.distributions import CategoricalDistribution, FloatDistribution, IntDistribution
 from optuna.trial import TrialState
 
-from config import LADDER, MATCHING_STORAGE, OUTPUT_DIR, STORAGE, cell_name
-from data import PARAMETERS_M, embedding_models, load_data, load_embeddings
-from diagnostics import _blocks, diagnose, treat
-from embedding_features import FUSIONS
-from estimator import nn_search
-from evaluation import (_f1, config_hash, evaluate_config, fit, load_side, load_sides,
+from zeroer.config import LADDER, MATCHING_STORAGE, OUTPUT_DIR, STORAGE, cell_name
+from zeroer.data.benchmarks import PARAMETERS_M, embedding_models, load_data, load_embeddings
+from zeroer.reporting.diagnostics import _blocks, diagnose, treat
+from zeroer.features.embeddings import FUSIONS
+from zeroer.estimator import nn_search
+from zeroer.experiments.evaluation import (_f1, config_hash, evaluate_config, fit, load_side, load_sides,
                         one_to_one, one_to_one_oracle, presence)
-from matcher import ZeroERMatcher
-from metrics import gold_ranks
+from zeroer.matcher import ZeroERMatcher
+from zeroer.reporting.metrics import gold_ranks
 
 
 def _matching_params(trial, space):
