@@ -14,6 +14,7 @@ FEATURES_DIR = join(BENCH_DIR, "magellan-features")
 BANK_DIR = join(OUTPUT_DIR, "cosine_bank")
 STORAGE = "sqlite:///" + join(OUTPUT_DIR, "optuna.db")
 MATCHING_STORAGE = "sqlite:///" + join(OUTPUT_DIR, "optuna_matching.db")
+UNSUPERVISED_STORAGE = "sqlite:///" + join(OUTPUT_DIR, "optuna_unsupervised.db")
 UPSTREAM = os.environ.get("ZEROER_UPSTREAM", join(dirname(dirname(ROOT_DIR)), "zeroer"))
 
 # Fixed retrieval model and PQ operating points used by the matching experiments.
