@@ -55,12 +55,12 @@ Wu, R., Chaba, S., Sawlani, S., Chu, X., & Thirumuruganathan, S.
 SIGMOD Conference 2021, pp. 1149–1164.
 
 
-## To-do (22/09/2026)
+## To-do (updated 20 October 2026)
 
-### Completed
+### Completed by 22 September 2026
 
 - [x] Rebuild record and attribute embeddings: 20 models, all five benchmarks; correct left/right-padding pooling. [Embedding inventory](ZeroER/datasets/embeddings/README.md)
-- [x] Port Magellan feature generation; add cached-reference parity tests for all five benchmarks. One known DBLP–Scholar difference remains below. [Tests](ZeroER/tests/test_feature_parity.py)
+- [x] Port Magellan feature generation; add cached-reference parity tests for all five benchmarks. The DBLP–Scholar `year` difference remains open below. [Tests](ZeroER/tests/test_feature_parity.py)
 - [x] Add upstream-result regression tests for FZ, DA and AB, plus FZ transitivity. These do not establish full paper replication. [Tests](ZeroER/tests/test_paper_replication.py)
 - [x] Integrate the local ZeroER model, matcher and estimator with pyJedAI. [Code layout](ZeroER/README.md)
 - [x] Assess blocking on all five benchmarks: 20 models × k 1–100 × both directions; candidate counts and PC/PQ; aggregate model ranking at PC ≥ 90%.
@@ -72,12 +72,26 @@ SIGMOD Conference 2021, pp. 1149–1164.
 - [x] Record Brier scores; compare retrieval cosine + greedy one-to-one, accept-all and the blocking oracle.
 - [x] Organise experiments in [tuning](ZeroER/hyperparameter-tuning.ipynb) and [full-data results](ZeroER/zeroer.ipynb) notebooks, with Optuna databases, SQL tables and a [results summary](ZeroER/MATCHING-PROGRESS.md).
 
+### Completed 19–20 October 2026
+
+- [x] **By 19 October:** Prepare publication notes and a manuscript draft in the [thesis repository](../msc-thesis/transcripts/acm-twc-2027/sections/notes.tex).
+- [x] **20 October:** Repeat embedding-only fitting with 20 single encoders and seven combinations. Select settings within each feature set using marginal negative log-likelihood (NLL) on validation pairs, with three train/validation splits that share no records within each split.
+- [x] **20 October:** Finish 594 searches × 10 configurations over 22 distinct candidate sets (five primary points and 19 sensitivity points, with two shared). Complete 593 selected full-data refits, including all 135 primary refits; retain the one failed sensitivity refit in reporting.
+- [x] **20 October:** Compare posterior-probability, log-likelihood-ratio (LLR) and direct-cosine thresholds. Evaluate threshold-only, threshold + greedy one-to-one, and greedy without a cutoff on frozen scores; report gold-selected oracle thresholds separately. [Decision rules](ZeroER/decisions.py)
+- [x] **20 October:** Run 44 original ZeroER baseline fits on the same candidates and 44 hard-EM/zero-fill diagnostic refits. Reuse Magellan caches and extract only the 868 missing Amazon–Google pairs.
+- [x] **20 October:** Time all 593 successful selected fits and 22 direct-cosine candidate sets, with three serial repeats and fresh similarity calculations. Separate loading, feature preparation, fitting, scoring and matching decisions; fresh string-feature timing currently covers FZ only.
+- [x] **20 October:** Organise the new runs in [tuning](ZeroER/unsupervised-tuning.ipynb) and [results](ZeroER/unsupervised-results.ipynb) notebooks with a separate experiment database; audit all 67,158 decision rows and preserve the earlier results. Commit the experiment code and ignore local research notes and planning drafts.
+
+### In progress (20 October 2026)
+
+- [ ] Add posterior-probability threshold curves beside LLR and record cosine for F2LLM-v2-4B, and clarify the experiment descriptions in the thesis README.
+
 ### Remaining
-- [ ] Will repeat clustering experiments, using only embedding models and combinations thereof, and minimise unsupervised loss score this time (log loss, or another proper metric) - to that end, get matching times (including similarity score calculation)
-- [ ] For the matching part, the only hyperparameter is the threshold for decision; here, also try introducing transitivity rule and see what happens (smilar to the cosine-one-to-one that I already did)
-- [ ] Need to decide how to set up hyperparameter tuning again, and then tune on whole data (use Karpathy's reciept)
-- [ ] Consider applying final architecture into new dataset(s), and get KPIs from that.
-- [ ] Create embeddings for walmart and imdb datasets so we can test generalisation of whole pipeline (within pyJedai D5 - D9)
-- [ ] Document the pyJedAI workflow and package ZeroER++ for integration into the main library; the local adapter is already implemented.
-- [ ] Start taking notes for publication
-- [ ] Profile encoding, feature generation and EM; compare Pandas/vectorised or Polars implementations. Consider PyTorch if profiling justifies it.
+
+- [ ] Define how to choose the embedding model, decision score, threshold and assignment rule without target gold labels. The current best shared rule (F2LLM-v2-4B, LLR ≥ −5 + greedy, mean F1 .81936) was identified using gold F1; only its per-dataset fit settings were selected without labels.
+- [ ] Evaluate the frozen selection procedure on untouched records or datasets, with uncertainty estimates and probability-calibration checks. Full-data refits remain development results.
+- [ ] Resolve the DBLP–Scholar `year` dtype/string-conversion difference in the local Magellan feature port; the parity test currently records the known discrepancy.
+- [ ] Create Walmart and IMDb embeddings for the planned pyJedAI D5–D9 generalisation experiments, then evaluate the frozen pipeline on new datasets.
+- [ ] Extend fresh string-feature timing beyond FZ and measure embedding generation, blocking and end-to-end runtime. Use the measurements to decide whether vectorisation, Polars or PyTorch would help.
+- [ ] Document the complete workflow and package ZeroER++ for integration into the main pyJedAI library; the local model/matcher/estimator adapter is implemented.
+- [ ] Turn the publication notes into methods and results sections, with reproducible settings and clear distinctions between unsupervised fitting, gold-selected comparisons and oracle bounds.
