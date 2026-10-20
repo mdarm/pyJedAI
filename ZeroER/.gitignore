@@ -3,3 +3,10 @@
 
 # Generated experiment outputs, including saved cosine similarities.
 /outputs/
+
+# Local research notes, workpapers and planning drafts.
+/RESEARCH-*.md
+/research-*-workpapers/
+/PLAN-v*.md
+/PROTOCOL-v*-draft.md
+/FRONTMATTER-v*-draft.md
