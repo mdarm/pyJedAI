@@ -43,8 +43,7 @@ def cell():
 
 
 def test_init_threshold_reaches_the_model(cell):
-    """The model recomputes its initial labels itself, so the threshold has to
-    be threaded into it — passing different ``y_init`` alone changes nothing."""
+    """The matcher computes the threshold seed once and the model honours it."""
     pairs, features = cell
     matcher = ZeroERMatcher(init_threshold=0.5, max_iter=1)
     matcher.match_pairs(pairs, features)

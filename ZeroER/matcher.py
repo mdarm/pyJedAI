@@ -150,7 +150,7 @@ class ZeroERMatcher(PYJEDAIFeature):
         return self.pairs
 
     def match_pairs(self, candidate_pairs, feature_matrix: pd.DataFrame,
-                    present=None, trace: bool = False) -> Graph:
+                    present=None, trace: bool = False, y_init=None) -> Graph:
         """EM + thresholding on an externally built feature matrix (rows
         aligned with ``candidate_pairs``). ``predict`` lands here after
         building the matrix itself; sweeps that cache features across trials
@@ -160,7 +160,8 @@ class ZeroERMatcher(PYJEDAIFeature):
         ``present``: {attribute block: boolean array, True where both records
         have the value}, row-aligned — what ``init_statistic='present_mean'`` and
         ``missing='ignore'`` read. ``trace`` keeps the per-iteration state in
-        ``self.model.history``."""
+        ``self.model.history``. ``y_init`` optionally supplies binary initial
+        labels; otherwise they are computed once using the selected statistic."""
         if self.missing == "ignore" and present is None:
             raise ValueError("missing='ignore' needs present=")
         if feature_matrix.shape[1] == 0:
@@ -169,8 +170,9 @@ class ZeroERMatcher(PYJEDAIFeature):
 
         em_t0 = time.time()
         names = feature_matrix.columns.tolist()
-        y_init = initial_labels(feature_matrix.values, names, self.init_threshold,
-                                self.init_statistic, present)
+        if y_init is None:
+            y_init = initial_labels(feature_matrix.values, names, self.init_threshold,
+                                    self.init_statistic, present)
         # transitivity looks pairs up by id, so it needs the real ones
         id_df = pd.DataFrame(list(candidate_pairs)) if self.transitivity else None
         # P_M is the last E-step's posterior; the model's parameters are one

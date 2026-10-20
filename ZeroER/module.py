@@ -6,9 +6,9 @@ blocking, no data loading, no experiment plumbing. It depends only on
 numpy/scipy/scikit-learn/pandas, so it could be lifted into a completely
 different project unchanged.
 
-The code is transferred bit-for-bit from upstream ZeroER's ``model.py``
-(https://github.com/chu-data-lab/zeroer) so that results stay comparable to the
-published ZeroER numbers.
+The default EM path follows upstream ZeroER's ``model.py``
+(https://github.com/chu-data-lab/zeroer). Local extensions support explicit
+initial labels, missing attributes, diagnostics and held-out density scoring.
 
 Exports
 -------
@@ -25,11 +25,12 @@ bay_coeff, getScaledSum
 """
 
 import pickle
-from collections import Counter, defaultdict
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 from scipy.optimize import newton
+from scipy.special import expit
 from scipy.stats import multivariate_normal, norm
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.mixture import GaussianMixture
@@ -177,9 +178,18 @@ class ZeroerModel:
                  pi_M=None, hard=False, init_threshold=0.8, init_statistic="sum",
                  present=None):
         self.c_bay = c_bay
-        self.y = initial_labels(similarity_matrix, feature_names, init_threshold,
-                                init_statistic, present)
         self.X = np.array(similarity_matrix)
+        if y is None:
+            y = initial_labels(self.X, feature_names, init_threshold,
+                               init_statistic, present)
+        self.y = np.asarray(y)
+        if self.y.ndim != 1 or len(self.y) != len(self.X):
+            raise ValueError("initial labels must have one value per feature row")
+        if not np.isin(self.y, (0, 1)).all():
+            raise ValueError("initial labels must be binary (0 or 1)")
+        self.y = self.y.astype(int, copy=True)
+        if np.any(np.bincount(self.y, minlength=2) < 2):
+            raise ValueError("initial labels need at least two rows in each class")
         self.id_tuple_to_index = {}
         if id_df is not None:
             self.ids = id_df.values
@@ -218,13 +228,13 @@ class ZeroerModel:
                     pd.DataFrame(self.X[rows][:, i_cols]).corr().values)
 
         if pi_M is None:
-            pi_M = Counter(list(y))[1] / float(len(y))
+            pi_M = float(self.y.mean())
 
         self._hard = hard
         self._num_rows = self.X.shape[0]
         self._num_cols = self.X.shape[1]
-        self._labels = list(sorted(np.unique(y)))
-        self.y_step = y
+        self._labels = list(sorted(np.unique(self.y)))
+        self.y_step = self.y.copy()
 
         self.pi_M = pi_M
         self.pi_M_l = pi_M
@@ -328,6 +338,80 @@ class ZeroerModel:
         ``free_energy`` instead (see ``run_em``'s ``tol``)."""
         return np.sum(self.P_M * (np.log(self.pi_M + DEL) + self.Q_M)
                       + self.P_U * (np.log(1 - self.pi_M + DEL) + self.Q_U))
+
+    def score_components(self, X, present=None):
+        """Score new rows under the final fitted parameters without changing them.
+
+        Columns must have the fitted feature order. A missing-aware model needs
+        a row-aligned presence mask and marginalises absent attribute blocks;
+        a zero-fill model uses every block, even if a mask is supplied.
+        ``p_match`` is the generative probability, before hard assignment or
+        transitivity. It can differ from the last E-step's retained posterior.
+        ``n_blocks`` counts the blocks contributing to each density.
+        """
+        X = np.asarray(X, dtype=float)
+        if X.ndim != 2 or X.shape[1] != self._num_cols:
+            raise ValueError("scoring matrix must have the fitted feature width")
+        if not np.isfinite(X).all():
+            raise ValueError("scoring matrix must contain only finite values")
+        if self.observed is not None and present is None:
+            raise ValueError("missing-aware scoring requires present=")
+        masks = {}
+        for block in self.group_name_2_col_indices:
+            if present is not None:
+                if block not in present:
+                    raise ValueError("presence mask is missing block {!r}".format(block))
+                rows = np.asarray(present[block])
+                if rows.shape != (len(X),) or not np.isin(rows, (False, True)).all():
+                    raise ValueError("presence mask for {!r} must contain one boolean "
+                                     "per scoring row".format(block))
+                masks[block] = rows.astype(bool)
+            if self.observed is None:
+                masks[block] = np.ones(len(X), dtype=bool)
+        n_blocks = np.zeros(len(X), dtype=int)
+        for rows in masks.values():
+            n_blocks += rows
+
+        def logpdf(mu, covariance):
+            # Match the E-step's stabilisation, using fresh local arrays.
+            covariance = covariance.copy() + 1e-8 * np.eye(self._num_cols)
+            min_eig = np.min(np.real(np.linalg.eigvals(covariance)))
+            if min_eig < 0:
+                covariance -= 10 * min_eig * np.eye(self._num_cols)
+            result = np.zeros(len(X))
+            if self.observed is None:
+                if len(X):
+                    result[:] = multivariate_normal.logpdf(
+                        X, mean=mu, cov=covariance, allow_singular=True)
+            else:
+                for block, cols in self.group_name_2_col_indices.items():
+                    rows = masks[block]
+                    if rows.any():
+                        result[rows] += multivariate_normal.logpdf(
+                            X[rows][:, cols], mean=mu[cols],
+                            cov=covariance[np.ix_(cols, cols)], allow_singular=True)
+            return result
+
+        pi = float(self.pi_M)
+        if not np.isfinite(pi) or not 0 <= pi <= 1:
+            raise ValueError("fitted match prior must lie between 0 and 1")
+        log_match = logpdf(self.Mu_M, self.Cov_M)
+        log_nonmatch = logpdf(self.Mu_U, self.Cov_U)
+        llr = log_match - log_nonmatch
+        log_pi = np.log(pi) if pi > 0 else -np.inf
+        log_pi_U = np.log1p(-pi) if pi < 1 else -np.inf
+        log_density = np.logaddexp(log_pi + log_match, log_pi_U + log_nonmatch)
+        p_match = expit(log_pi - log_pi_U + llr)
+        blind = n_blocks == 0
+        log_density[blind] = 0.
+        p_match[blind] = pi
+        return dict(log_match=log_match, log_nonmatch=log_nonmatch, llr=llr,
+                    p_match=p_match, log_density=log_density,
+                    n_blocks=n_blocks, pi=pi)
+
+    def score_samples(self, X, present=None):
+        """Per-row marginal log density under the final fitted mixture."""
+        return self.score_components(X, present=present)["log_density"]
 
     def predict_PM(self, X_test):
         reg_cov = 1e-8 * np.identity(len(self.X[0]))
