@@ -73,15 +73,11 @@ SIGMOD Conference 2021, pp. 1149–1164.
 - [x] Organise experiments in [tuning](ZeroER/hyperparameter-tuning.ipynb) and [full-data results](ZeroER/zeroer.ipynb) notebooks, with Optuna databases, SQL tables and a [results summary](ZeroER/MATCHING-PROGRESS.md).
 
 ### Remaining
-
-- [ ] Resolve the DBLP–Scholar `year` dtype/string-conversion difference in feature parity.
-- [ ] Complete single-column/single-table benchmark support and tests; cached embedding blocking currently requires two tables.
-- [ ] Compare single models, model combinations and string features with equal tuning budgets and the same attributes/assignment rules.
-- [ ] Use consistent, disjoint evaluation splits and uncertainty estimates; current full-data results include tuning pairs.
-- [ ] Define matching selection across datasets; blocking already has aggregate ranking, but matching tuning selects per dataset. Validate donor transfer.
-- [ ] Evaluate proper-scoring-rule selection and calibration; Brier is recorded, while tuning still maximises F1.
-- [ ] Test decision thresholds beyond .5; initialization thresholds and transitivity on/off have already been explored. Review findings with George.
-- [ ] Run hybrid joint tuning and L∞ matching experiments; feature caches exist.
-- [ ] Profile encoding, feature generation and EM; compare Pandas/vectorised or Polars implementations. Consider PyTorch if profiling justifies it.
+- [ ] Will repeat clustering experiments, using only embedding models and combinations thereof, and minimise unsupervised loss score this time (log loss, or another proper metric) - to that end, get matching times (including similarity score calculation)
+- [ ] For the matching part, the only hyperparameter is the threshold for decision; here, also try introducing transitivity rule and see what happens (smilar to the cosine-one-to-one that I already did)
+- [ ] Need to decide how to set up hyperparameter tuning again, and then tune on whole data (use Karpathy's reciept)
 - [ ] Consider applying final architecture into new dataset(s), and get KPIs from that.
+- [ ] Create embeddings for walmart and imdb datasets so we can test generalisation of whole pipeline (within pyJedai D5 - D9)
 - [ ] Document the pyJedAI workflow and package ZeroER++ for integration into the main library; the local adapter is already implemented.
+- [ ] Start taking notes for publication
+- [ ] Profile encoding, feature generation and EM; compare Pandas/vectorised or Polars implementations. Consider PyTorch if profiling justifies it.

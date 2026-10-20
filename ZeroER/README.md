@@ -5,6 +5,17 @@ searches and results. Open [zeroer.ipynb](zeroer.ipynb) for selected configurati
 refitted on the full candidate sets. Both query stored results by default;
 enable the relevant `RUN_*` flag to fit models.
 
+The embedding-only experiments use [unsupervised-tuning.ipynb](unsupervised-tuning.ipynb)
+and [unsupervised-results.ipynb](unsupervised-results.ipynb), with a separate
+`outputs/optuna_unsupervised.db`. They reuse completed blocking, select configurations
+by held-out marginal NLL within each panel, and report fixed and oracle decisions
+separately. Original ZeroER baselines use the same candidate sets.
+The fixed KaLM blocker's five previously selected operating points are primary;
+the 19-point ladder is sensitivity analysis. Both notebooks show the original
+selection evidence and distinguish these scopes.
+Distribution fitting uses no transitivity constraints; thresholds and greedy
+one-to-one matching operate only on frozen scores.
+
 | Code | Responsibility |
 | --- | --- |
 | `module.py` → `matcher.py` → `estimator.py` | Numerical model, pyJedAI matching adapter, then blocking/matching pipeline |
@@ -14,6 +25,7 @@ enable the relevant `RUN_*` flag to fit models.
 | `evaluation.py`, `metrics.py`, `diagnostics.py` | Fit fixed candidates, score predictions and inspect fitted components |
 | `tuning.py` | Shared objectives, resumable sweeps and replays of stored trial parameters |
 | `reporting.py` | Database queries, result tables and plots |
+| `unsupervised*.py`, `decisions.py` | Label-free selection, fixed-candidate baselines, timing and threshold/greedy decisions |
 | `config.py` | Paths and frozen retrieval settings; Python 3.6 compatible |
 | `prepare/` | Commands that build cached experiment inputs |
 | `analysis/` | Exploratory notebooks, exports and Streamlit dashboards |

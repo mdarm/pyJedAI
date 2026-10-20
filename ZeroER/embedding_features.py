@@ -7,7 +7,7 @@ whose shape is compatible with ZeroER's covariance decomposition
 Innovation 1). Whole-record similarity is deliberately *not* offered here — a
 single scalar summarising the pair correlates with every attribute group, and
 ``module.py`` would file it into a singleton group, forcing an independence that
-does not hold. See NEXT-STEPS-matching.md §B1.
+does not hold.
 
 Columns are named ``{attr}_emb_{metric}``, so ``module.py``'s
 ``name.split("_")[0]`` files each one into that attribute's covariance block. The
