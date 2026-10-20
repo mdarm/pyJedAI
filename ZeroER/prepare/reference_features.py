@@ -50,20 +50,18 @@ def export_pairs(dataset):
     return written
 
 
-def build_features(dataset, side, k, bench_dir=BENCH_DIR):
-    """Run upstream's ``extract_features`` on one cell's pairs."""
+def extract_pair_features(dataset, pairs, bench_dir=BENCH_DIR, n_jobs=None):
+    """Genuine upstream features for supplied pairs, without writing a cache.
+
+    ``n_jobs`` optionally caps extraction workers without changing feature math.
+    This lets cache assembly compute only pairs absent from existing artifacts.
+    """
     if UPSTREAM not in sys.path:
         sys.path.insert(0, UPSTREAM)
     from data_loading_helper.feature_extraction import extract_features
     import py_entitymatching as em
 
-    name = cell_name(dataset, side, k)
-    pairs_path = join(PAIRS_DIR, name + ".csv")
-    if not exists(pairs_path):
-        raise FileNotFoundError(
-            "{} not found — run `python -m prepare.reference_features pairs` under data-env "
-            "first".format(pairs_path))
-    pairs = pd.read_csv(pairs_path, dtype={"ltable_id": str, "rtable_id": str})
+    pairs = pairs[["ltable_id", "rtable_id"]].astype(str).reset_index(drop=True)
     left, right = load_reference_tables(dataset, bench_dir)
 
     # Magellan resolves each pair's values through the fk columns, so the
@@ -85,8 +83,29 @@ def build_features(dataset, side, k, bench_dir=BENCH_DIR):
     em.set_property(candset, "fk_ltable", "ltable_id")
     em.set_property(candset, "fk_rtable", "rtable_id")
 
-    features = extract_features(left, right, candset)
-    features = features.drop(columns=["_id", "gold"])
+    original = em.extract_feature_vecs
+    if n_jobs is not None:
+        def limited_workers(*args, **kwargs):
+            kwargs["n_jobs"] = n_jobs
+            return original(*args, **kwargs)
+        em.extract_feature_vecs = limited_workers
+    try:
+        features = extract_features(left, right, candset)
+    finally:
+        em.extract_feature_vecs = original
+    return features.drop(columns=["_id", "gold"])
+
+
+def build_features(dataset, side, k, bench_dir=BENCH_DIR):
+    """Run upstream's ``extract_features`` on one cell's pairs."""
+    name = cell_name(dataset, side, k)
+    pairs_path = join(PAIRS_DIR, name + ".csv")
+    if not exists(pairs_path):
+        raise FileNotFoundError(
+            "{} not found — run `python -m prepare.reference_features pairs` under data-env "
+            "first".format(pairs_path))
+    pairs = pd.read_csv(pairs_path, dtype={"ltable_id": str, "rtable_id": str})
+    features = extract_pair_features(dataset, pairs, bench_dir=bench_dir)
 
     os.makedirs(FEATURES_DIR, exist_ok=True)
     out = join(FEATURES_DIR, name + ".csv.gz")

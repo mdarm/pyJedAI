@@ -23,11 +23,20 @@ def cell_dir(dataset, side, bank_dir):
     return join(bank_dir, cell_name(dataset, side, sides(dataset)[side]))
 
 
+def _read_dir(dataset, side, k, bank_dir):
+    """Keep ladder slices unchanged; larger cells require their explicit cache."""
+    if k <= sides(dataset)[side]:
+        return cell_dir(dataset, side, bank_dir)
+    return join(bank_dir, cell_name(dataset, side, k))
+
+
 def load_bank(dataset, side, k, models, attributes=None, metrics=("cos",),
               bank_dir=BANK_DIR):
-    """Bank columns of one cell — any ``k`` up to the side's largest — row-aligned
-    with ``evaluation``'s slice of the stored Magellan matrix."""
-    directory = cell_dir(dataset, side, bank_dir)
+    """Read a ladder slice, or an explicitly materialized larger cell.
+
+    A missing larger cell raises instead of silently returning fewer neighbors.
+    """
+    directory = _read_dir(dataset, side, k, bank_dir)
     keep = (pd.read_parquet(join(directory, "pairs.parquet"), columns=["rank"])["rank"] < k).to_numpy()
     attributes = attributes or DATASETS[dataset]["attributes"]
     frames = [pd.read_parquet(
@@ -39,5 +48,5 @@ def load_bank(dataset, side, k, models, attributes=None, metrics=("cos",),
 
 def load_presence(dataset, side, k, bank_dir=BANK_DIR):
     """ids, rank and the embedding inputs' ``present_<attr>`` flags of one cell."""
-    pairs = pd.read_parquet(join(cell_dir(dataset, side, bank_dir), "pairs.parquet"))
+    pairs = pd.read_parquet(join(_read_dir(dataset, side, k, bank_dir), "pairs.parquet"))
     return pairs[pairs["rank"] < k].reset_index(drop=True)
